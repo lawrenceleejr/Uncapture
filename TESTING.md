@@ -40,6 +40,12 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
 - [ ] **Burst.** A burst shows all its frames in one cluster, even at 5 s.
 - [ ] **Favorites.** In a cluster with a ♥ photo, keep another: the favorite
       isn't dimmed. `X` on it marks it, with a warning.
+- [ ] **Hearts.** `S` on a photo: it's a favorite in Photos at once (♥ in
+      Photos too). Note whether macOS asks to allow the change: ______
+      `S` again takes it off.
+- [ ] **Daily cleanup log.** With daily cleanup on (`T`), keep one photo of
+      a cluster, Review, delete. Back on the start screen, today's day in the
+      calendar is filled in and lists today's date with the count.
 - [ ] **Sizes.** Review says "about N MB". If it's far from what Photos
       shows (Info), the undocumented `fileSize` key isn't there and it's
       estimating from pixels.

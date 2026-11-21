@@ -20,9 +20,11 @@ nothing.
   stays in one cluster.
 - **Clusters only** (on by default, `C`) hides photos that have no others
   near them, so I only see what needs a decision.
-- **Daily cleanup** (`D`) shows only photos taken on today's date in earlier
-  years. It's a two-minute habit. Photos from 29 February show on
-  28 February in other years.
+- **Daily cleanup** (`T`) shows only photos taken on one day of the year in
+  earlier years: today, unless I pick another day in its calendar. It's a
+  two-minute habit. The calendar shades each day by how recently I cleaned
+  it up, and lists every time I deleted photos of that day. Photos from
+  29 February show on 28 February in other years.
 - **Dates.** On the start screen I drag across the chart of photos per month
   to pick a range, or use `←` `→`.
 
@@ -30,11 +32,13 @@ In the viewer:
 
 | Key | |
 |---|---|
-| `←` `→` `↑` `↓` `j` `k` | previous / next cluster (`⇧` jumps ten) |
+| `←` `→` `↑` `↓` | previous / next cluster (`⇧` jumps ten) |
+| `j` `k` | next / previous photo, on into the next cluster |
 | `1`–`9` | keep that photo |
 | `Tab`, `↵` | move through the cluster, keep the focused photo |
 | `A`, `0` | keep all, clear the cluster |
-| `X` | mark one photo for deletion (also how to delete a favorite) |
+| `D` (or `X`) | mark the photo for deletion (also how to delete a favorite) |
+| `S` | heart it in Photos (or take the heart off) |
 | `Space` | the photo large; `Z` actual pixels |
 | `R` | review everything marked |
 | `M`, `?` | every action, every key |
@@ -42,6 +46,8 @@ In the viewer:
 The rule is the same as Brackit's picks. A cluster with no keeper is left
 alone. Once a cluster has a keeper, its other photos are marked: dimmed,
 with a thin diagonal line. Favorites (♥) are never marked automatically.
+So I can also flip through with `j`, press `D` on what should go and `S` on
+what I love.
 
 ## Deleting
 

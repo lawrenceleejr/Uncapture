@@ -71,6 +71,9 @@ photos) and in the large view.
 - **Deleting only from Review, in one batch.** The server re-derives what's
   marked and deletes only what is both requested and marked; PhotoKit
   re-fetches by `localIdentifier` first, so what's gone is skipped.
+- `S` writes the favorite to Photos at once (`/api/favorite`); it isn't a
+  mark. Daily cleanup's log (`dailyLog` in state.json, by "MM-DD") is
+  written by `/api/delete` when the page sends the day it's cleaning up.
 - Marks are saved debounced; anything that reads them from the server
   (Review, delete) calls `flushMarks()` first.
 

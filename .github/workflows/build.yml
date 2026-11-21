@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            npx tauri build --target ${{ matrix.target }} --bundles dmg && exit 0
+            npx tauri build --target ${{ matrix.target }} --bundles app,dmg && exit 0
             echo "build attempt $attempt failed; retrying in 30 s"
             sleep 30
           done

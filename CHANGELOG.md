@@ -7,10 +7,15 @@ TESTING.md.
 
 - Clusters of photos taken close together, with a window from 5 s to 30 min
   (`[` `]`); a burst always stays in one cluster.
-- Clusters only (`C`), daily cleanup on this day in earlier years (`D`), and
+- Clusters only (`C`), daily cleanup on this day in earlier years (`T`), and
   a date range dragged on the chart of photos per month.
+- Daily cleanup's calendar: any day of the year, shaded by how recently it
+  was cleaned up, with every past cleanup of the chosen day and how many
+  photos went.
+- `j` / `k` step through photos one at a time, across clusters; `D` marks
+  one for deletion; `S` hearts it in Photos.
 - Keep with `1`–`9` (or `Tab` and `↵`); the rest of a cluster with a keeper
-  is marked for deletion. Favorites are protected unless marked with `X`.
+  is marked for deletion. Favorites are protected unless marked with `D`.
 - The large view (`Space`), with actual pixels (`Z`) downloaded from iCloud
   if needed.
 - Review (`R`) and delete from Photos in one batch, after macOS's
