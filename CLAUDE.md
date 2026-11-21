@@ -79,6 +79,11 @@ photos) and in the large view.
 - `S` writes the favorite to Photos at once (`/api/favorite`); it isn't a
   mark. Daily cleanup's log (`dailyLog` in state.json, by "MM-DD") is
   written by `/api/delete` when the page sends the day it's cleaning up.
+- Display-size images are local only (`image` with a size never
+  downloads). Daily cleanup asks for sharp copies of the day (`/api/sharp`,
+  up to 300): downloaded with `download()` in the background, kept in
+  `Application Support/Uncapture/sharp`, served by `/api/img` resized; the
+  page swaps them in place (`sharpened`).
 - Marks are saved debounced; anything that reads them from the server
   (Review, delete) calls `flushMarks()` first.
 

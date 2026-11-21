@@ -48,6 +48,10 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
 - [ ] **Burst.** A burst shows all its frames in one cluster, even at 5 s.
 - [ ] **Favorites.** In a cluster with a ♥ photo, keep another: the favorite
       isn't dimmed. `X` on it marks it, with a warning.
+- [ ] **Sharp copies for a day.** With "Optimize Mac Storage" on, open a
+      day in daily cleanup (`T`, `↵`). The footer counts "sharper copies
+      from iCloud: N of M"; photos that were blurry turn sharp as they
+      arrive, without flicker. Reopening the day is sharp at once.
 - [ ] **Hearts.** `S` on a photo: it's a favorite in Photos at once (♥ in
       Photos too). Note whether macOS asks to allow the change: ______
       `S` again takes it off.

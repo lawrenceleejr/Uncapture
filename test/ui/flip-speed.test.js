@@ -30,7 +30,9 @@ test.before(async () => {
   browser = await chromium.launch(process.env.UNCAPTURE_CHROMIUM ? { executablePath: process.env.UNCAPTURE_CHROMIUM } : {});
   const lib = fs.mkdtempSync(path.join(os.tmpdir(), 'uncapture-flip-'));
   await makeLibrary(browser, lib, SIZES);
-  srv = startServer(lib);
+  // "today" is the library's anniversary, so daily cleanup holds all of it;
+  // each sharp copy takes a moment, as from iCloud
+  srv = startServer(lib, { env: { UNCAPTURE_TODAY: '2025-05-01', UNCAPTURE_FAKE_DOWNLOAD_MS: '400' } });
   base = await srv.base;
 });
 
@@ -224,4 +226,23 @@ test('every flip key moves, within 50 ms', async () => {
   assert.deepEqual(r.durations.filter((d) => d > BUDGET_MS), []);
   assert.deepEqual(errors, []);
   await page.close();
+});
+
+// Daily cleanup fetches sharp copies of the day's photos and swaps them in
+// as they arrive: flipping meanwhile stays within budget.
+test('daily cleanup: flipping while sharp copies arrive paints within 50 ms', async () => {
+  const put = (body) => fetch(base + '/api/settings', { method: 'PUT', headers: { 'X-Uncapture': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  await put({ daily: true });
+  try {
+    const { page, errors } = await openViewer({ settle: 300 });
+    await page.waitForFunction(() => /sharper copies/.test(document.querySelector('#c-sharp').textContent));
+    await page.evaluate(() => (window.__keyDurations = []));
+    const r = await flip(page, { presses: 30, gapMs: 100 });
+    assertFast('daily, sharp copies arriving', r);
+    assert.ok(await page.evaluate(() => SH.seen.size > 0), 'some sharp copies arrived while flipping');
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally {
+    await put({ daily: false });
+  }
 });
