@@ -46,6 +46,13 @@ test.after(async () => {
 });
 
 const text = (page, sel) => page.$eval(sel, (e) => e.textContent);
+
+// each test starts from the defaults, nothing marked
+test.beforeEach(async () => {
+  const put = (u, body) => fetch(base + u, { method: 'PUT', headers: { 'X-Uncapture': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  await put('/api/settings', { window: 60, clustersOnly: true, daily: false, from: null, to: null });
+  await put('/api/marks', { keep: [], del: [] });
+});
 const settle = (page, ms = 150) => page.waitForTimeout(ms);
 
 test('start screen: window, filters, dates, open', async () => {
@@ -83,12 +90,22 @@ test('start screen: window, filters, dates, open', async () => {
   await page.keyboard.press('Shift+ArrowRight');
   await settle(page, 300);
   assert.match(await text(page, '#big-sub'), /^Jan 2024 – Feb 2024 ·/);
+  // a step after widening moves on from the end of the range
   await page.keyboard.press('ArrowRight');
   await settle(page, 300);
+  assert.match(await text(page, '#big-sub'), /^Mar 2024 ·/);
+  await page.keyboard.press('ArrowLeft');
+  await settle(page, 300);
   assert.match(await text(page, '#big-sub'), /^Feb 2024 ·/);
+  // the last 30 days (to the last photo); the last 12 months is all of it here
+  await page.keyboard.press('l');
+  await settle(page, 300);
+  assert.match(await text(page, '#big-sub'), /^\d+ Apr – \d+ May 2024 ·/);
   await page.keyboard.press('y');
   await settle(page, 300);
-  assert.match(await text(page, '#big-sub'), /–/);
+  assert.match(await text(page, '#big-sub'), /^All dates/);
+  await page.keyboard.press('ArrowRight');
+  await settle(page, 300);
   await page.keyboard.press('a');
   await settle(page, 300);
   assert.match(await text(page, '#big-sub'), /^All dates/);

@@ -451,8 +451,11 @@ function stepBin(d, widen) {
 let settingsTimer = 0;
 function saveSettings() {
   clearTimeout(settingsTimer);
-  const s = { ...S.settings };
-  settingsTimer = setTimeout(() => api('PUT', '/api/settings', s).catch(() => {}), 250);
+  settingsTimer = setTimeout(flushSettings, 250);
+}
+function flushSettings() {
+  clearTimeout(settingsTimer);
+  api('PUT', '/api/settings', { ...S.settings }).catch(() => {});
 }
 
 function bindStart() {
@@ -521,6 +524,7 @@ function setDaily(on) {
 /* ------------------------------------------------------------ viewer: clusters */
 
 async function openViewer() {
+  flushSettings();
   const lib = ST.lib && ST.lib.version === S.version ? ST.lib : await api('GET', libraryUrl());
   applyLibrary(lib, null);
   S.opened = true;
