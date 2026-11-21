@@ -325,4 +325,30 @@ mod tests {
         let del: HashSet<String> = [short_id("fav")].into();
         assert_eq!(to_delete(&a, &c, &keep, &del), vec![1, 2], "unless marked explicitly");
     }
+
+    /// The plan's target: re-clustering 100,000 assets after a window change
+    /// takes under 100 ms (checked in release builds: `cargo test --release`).
+    #[test]
+    fn reclustering_100k_assets_is_fast() {
+        let a: Vec<Asset> = (0..100_000)
+            .map(|i| {
+                let mut x = asset(&format!("p{}", i), T0 + i as i64 * 7_000 + (i % 13) as i64 * 50_000);
+                if i % 40 < 6 {
+                    x.burst_id = Some(format!("b{}", i / 40));
+                }
+                x
+            })
+            .collect();
+        let mut worst = 0.0f64;
+        for w in WINDOWS {
+            let t = std::time::Instant::now();
+            let cs = build(&a, &Filter { window: w, clusters_only: true, ..Default::default() }, &utc);
+            worst = worst.max(t.elapsed().as_secs_f64() * 1000.0);
+            assert!(!cs.is_empty());
+        }
+        println!("re-clustering 100,000 assets: {:.1} ms at worst", worst);
+        if !cfg!(debug_assertions) {
+            assert!(worst < 100.0, "re-clustering took {:.1} ms", worst);
+        }
+    }
 }

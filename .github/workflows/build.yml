@@ -1,0 +1,136 @@
+name: build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish a release with this tag (e.g. v0.1.0), created on the commit being built. Leave empty to just build.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  # Rust unit tests (clustering, filters, marks; re-clustering speed in a
+  # release build) and the server tests against the fake library.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: cli
+      - run: cargo test --release --no-default-features --manifest-path src-tauri/Cargo.toml
+      - run: npm run build:cli
+      - run: npm test
+
+  # Flip-speed budget (every key paints within 50 ms), the WebKit paint check,
+  # a walk through every key, and review-and-delete, in headless browsers.
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: cli
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run build:cli
+      - run: npm run test:ui
+
+  # The Mac app. PhotoKit code compiles only here; the Rust tests run here too.
+  app:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS-AppleSilicon
+            target: aarch64-apple-darwin
+            asset: Uncapture-macOS-AppleSilicon.dmg
+          - name: macOS-Intel
+            target: x86_64-apple-darwin
+            asset: Uncapture-macOS-Intel.dmg
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+      - name: Rust tests on macOS (with the PhotoKit code compiled in)
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: cargo test --no-default-features --manifest-path src-tauri/Cargo.toml
+      - run: npm ci
+      - name: Build app
+        # bundling downloads helper tools; retry if that download hiccups
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npx tauri build --target ${{ matrix.target }} --bundles dmg && exit 0
+            echo "build attempt $attempt failed; retrying in 30 s"
+            sleep 30
+          done
+          exit 1
+      - name: Check the bundle asks for Photos access
+        shell: bash
+        run: |
+          plist="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Uncapture.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryUsageDescription' "$plist"
+          codesign -d --entitlements - "src-tauri/target/${{ matrix.target }}/release/bundle/macos/Uncapture.app" 2>&1 | grep -q photos-library
+      - name: Name the download
+        # fixed names, so links to releases/latest/download/<name> always work
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg "dist/${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Uncapture-${{ matrix.name }}
+          compression-level: 0
+          if-no-files-found: error
+          path: dist/${{ matrix.asset }}
+
+  release:
+    needs: [app, ui]
+    # on a pushed v* tag, or when run by hand with a release_tag
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Uncapture ${{ inputs.release_tag || github.ref_name }}
+          files: artifacts/*
+          body_path: src/CHANGELOG.md
