@@ -100,7 +100,7 @@ test('start screen: window, filters, dates, open', async () => {
   // the last 30 days (to the last photo); the last 12 months is all of it here
   await page.keyboard.press('l');
   await settle(page, 300);
-  assert.match(await text(page, '#big-sub'), /^\d+ Apr – \d+ May 2024 ·/);
+  assert.match(await text(page, '#big-sub'), /^28 Apr – 27 May 2024 ·/);
   await page.keyboard.press('y');
   await settle(page, 300);
   assert.match(await text(page, '#big-sub'), /^All dates/);

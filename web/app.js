@@ -273,8 +273,8 @@ function refreshStart() {
 function rangeLabel() {
   const { from, to } = S.settings;
   if (!from && !to) return 'All dates';
-  const a = from || ST.bins[0]?.from;
-  const b = to || ST.bins.at(-1)?.to;
+  const a = from || ST.firstDay;
+  const b = to || ST.lastDay;
   if (!a || !b) return 'All dates';
   if (a === b) return niceDay(a);
   // whole months read as months
@@ -300,6 +300,8 @@ function chartBins() {
   for (const a of S.assets) days.set(a.day, (days.get(a.day) || 0) + 1);
   const keys = [...days.keys()].sort();
   if (!keys.length) return [];
+  ST.firstDay = keys[0];
+  ST.lastDay = keys.at(-1);
   const span = (Date.parse(keys.at(-1)) - Date.parse(keys[0])) / 864e5;
   ST.monthly = span > 120;
   $('#chart-title').textContent = ST.monthly ? 'Photos per month' : 'Photos per day';
@@ -412,21 +414,18 @@ function setRange(a, b) {
   refreshStart();
 }
 
+// All, or the last 12 months / 30 days up to the newest photo
 function quickRange(q) {
-  const bins = ST.bins;
-  if (!bins.length) return;
+  if (!ST.bins.length) return;
   if (q === 'all') return setRange(null, null);
-  const last = bins.at(-1);
-  const end = Date.parse(last.to);
-  const from = new Date(end - (q === 'year' ? 364 : 29) * 864e5).toISOString().slice(0, 10);
-  const first = bins.find((b) => b.to >= from) || bins[0];
-  setRange(first, last);
-  if (!ST.monthly || q === 'month') {
-    S.settings.from = from;
-    saveSettings();
-    drawChart();
-    refreshStart();
-  }
+  const from = new Date(Date.parse(ST.lastDay) - (q === 'year' ? 364 : 29) * 864e5).toISOString().slice(0, 10);
+  S.settings.from = from <= ST.firstDay ? null : from;
+  S.settings.to = null;
+  S.settings.daily = false;
+  $('#opt-daily').checked = false;
+  saveSettings();
+  drawChart();
+  refreshStart();
 }
 
 // ← → one bin at a time (bins with photos); ⇧ grows or shrinks the end
@@ -650,17 +649,24 @@ function toggleDel(id) {
 
 let marksTimer = 0;
 let marksSeq = 0;
+let marksPending = false;
 function saveMarks() {
   clearTimeout(marksTimer);
+  marksPending = true;
+  marksTimer = setTimeout(flushMarks, 300);
+}
+// Send the marks now (Review and delete read them from the server).
+async function flushMarks() {
+  clearTimeout(marksTimer);
+  if (!marksPending) return;
+  marksPending = false;
   const seq = ++marksSeq;
-  marksTimer = setTimeout(async () => {
-    const r = await api('PUT', '/api/marks', { keep: [...S.keep], del: [...S.del], window: S.settings.window }).catch(() => null);
-    // the server's count covers marks in other views too
-    if (r && seq === marksSeq) {
-      S.toDelete = r.toDelete;
-      updateDeleteCount();
-    }
-  }, 300);
+  const r = await api('PUT', '/api/marks', { keep: [...S.keep], del: [...S.del], window: S.settings.window }).catch(() => null);
+  // the server's count covers marks in other views too
+  if (r && seq === marksSeq && !marksPending) {
+    S.toDelete = r.toDelete;
+    updateDeleteCount();
+  }
 }
 
 function updateMarksUi() {
@@ -1642,6 +1648,7 @@ function closeReview() {
 }
 
 async function loadReview() {
+  await flushMarks();
   if (S.version !== S.server.library.version) await loadAssets();
   const r = await api('GET', `/api/review?window=${S.settings.window}`).catch((e) => ({ error: e.message }));
   if (r.error) {
@@ -1770,8 +1777,7 @@ async function doDelete() {
   const ids = reviewIds();
   if (!ids.length || RV.busy) return;
   RV.busy = true;
-  clearTimeout(marksTimer);
-  await api('PUT', '/api/marks', { keep: [...S.keep], del: [...S.del], window: S.settings.window }).catch(() => {});
+  await flushMarks();
   const btn = $('#delete-btn');
   btn.disabled = true;
   const res = $('#review-result');
@@ -2236,6 +2242,11 @@ function bindUi() {
     }
   };
   window.addEventListener('focus', check);
+  // closing the window with marks not yet sent: send them on the way out
+  window.addEventListener('pagehide', () => {
+    if (!marksPending) return;
+    fetch('/api/marks', { method: 'PUT', keepalive: true, headers: { 'X-Uncapture': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ keep: [...S.keep], del: [...S.del], window: S.settings.window }) });
+  });
   document.addEventListener('visibilitychange', () => !document.hidden && check());
   setInterval(() => !document.hidden && check(), 10000);
 }
