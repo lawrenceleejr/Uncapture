@@ -2228,7 +2228,7 @@ async function doDelete() {
     // the space first, large; then what happens to it
     if (r.deleted) {
       const head = el('div', 'cleared');
-      head.append(el('span', 'big num', `${fmtBytes(r.bytes || 0)}`), 'cleared');
+      head.append(el('span', 'amount num', fmtBytes(r.bytes || 0)), ' cleared');
       res.append(head);
     }
     let msg = `Deleted ${fmtN(r.deleted)} photo${r.deleted === 1 ? '' : 's'}. They're in Recently Deleted in Photos for 30 days: iCloud gets the space back then, or as soon as you empty it there.`;

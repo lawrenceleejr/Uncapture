@@ -79,6 +79,9 @@ photos) and in the large view.
 - `S` writes the favorite to Photos at once (`/api/favorite`); it isn't a
   mark. Daily cleanup's log (`dailyLog` in state.json, by "MM-DD") is
   written by `/api/delete` when the page sends the day it's cleaning up.
+- Every delete is logged with its size (`deletions` in state.json, sizes
+  measured before deleting: PhotoKit's file sizes where it gives them, else
+  estimates), for the start screen's "Cleared so far".
 - Display-size images are local only (`image` with a size never
   downloads). Daily cleanup asks for sharp copies of the day (`/api/sharp`,
   up to 300): downloaded with `download()` in the background, kept in

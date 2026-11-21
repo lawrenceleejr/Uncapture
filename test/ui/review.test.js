@@ -73,7 +73,7 @@ test('review and delete: exactly what is marked goes, after the confirmation', a
   assert.match(result, /Recently Deleted in Photos for 30 days: iCloud gets the space back then, or as soon as you empty it there\./);
   // the space cleared, first and large: the files' sizes here
   const cleared = ['IMG_0003.JPG', 'IMG_0004.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG'].reduce((t, n) => t + fs.statSync(path.join(lib, '.trash', n)).size, 0);
-  const big = await page.$eval('#review-result .cleared .big', (e) => e.textContent);
+  const big = await page.$eval('#review-result .cleared .amount', (e) => e.textContent);
   assert.equal(big, cleared >= 1e6 ? `${Math.round(cleared / 1e6)} MB` : `${Math.round(cleared / 1e3)} KB`);
   assert.match(await page.$eval('#review-result .cleared', (e) => e.textContent), / cleared$/);
   assert.deepEqual(trash(), ['IMG_0003.JPG', 'IMG_0004.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG']);

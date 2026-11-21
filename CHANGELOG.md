@@ -12,6 +12,8 @@ TESTING.md.
 - Daily cleanup's calendar: any day of the year, shaded by how recently it
   was cleaned up, with every past cleanup of the chosen day and how many
   photos went.
+- The space cleared: large after each delete, and in all on the start screen
+  (with a sparkline of it growing).
 - Videos only (`V`); locations under each photo (`G`, off by default), with
   place names from Apple's geocoder; the date and time in every caption.
 - Daily cleanup fetches sharp copies of the day's photos from iCloud (up to

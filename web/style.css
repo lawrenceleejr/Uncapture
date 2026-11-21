@@ -238,7 +238,7 @@ body.fs #peek { display: none; }
 #review-result { min-height: 30px; padding: 8px 0 6px; font-size: 13px; line-height: 1.5; }
 #review-result.done { color: var(--ink); }
 #review-result .cleared { font-size: 15px; color: var(--ink); margin: 2px 0 4px; }
-#review-result .cleared .big { font-size: 28px; letter-spacing: .01em; margin-right: 8px; }
+#review-result .cleared .amount { font-size: 28px; letter-spacing: .01em; margin-right: 4px; }
 #review-result .total { color: var(--muted); margin-top: 4px; }
 #review-scroll { flex: 1; overflow-y: auto; padding-bottom: 40px; }
 .rgroup { padding: 10px 0 16px; border-bottom: 1px solid var(--hair); }

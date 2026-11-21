@@ -68,6 +68,10 @@ happens next:
 - Deletions sync to every device on my iCloud account.
 - Live Photos and RAW+JPEG pairs go as a whole, with their edits.
 
+After each delete Uncapture says how much space it cleared, and the start
+screen keeps the running total: how much in all, how many photos, since
+when, with a small line of it growing.
+
 Uncapture leaves out hidden photos. It's meant to leave out iCloud Shared
 Library photos too, since deleting one removes it for everyone, but
 PhotoKit has no public way to tell them apart. So for now I don't use it on
