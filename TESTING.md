@@ -42,6 +42,9 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
       explanation shows; `↵` again. macOS asks to confirm deleting 3. Allow:
       "Deleted 3. They're in Recently Deleted…". The three are in Recently
       Deleted in Photos.
+- [ ] **Back where you were.** In the large view on a cluster, keep one, `R`,
+      delete: after macOS's confirmation you're back in the large view on
+      the same photo, same filters, with "… cleared" over it.
 - [ ] **Cancel.** Do it again and choose Don't Allow in macOS's dialog:
       "Nothing was deleted: the confirmation was cancelled."
 - [ ] **Library changes.** Delete a photo in Photos while Uncapture is open,

@@ -57,9 +57,9 @@ file from Photos, with my edits.
 | `M`, `?` | every action, every key |
 
 The rule is the same as Brackit's picks. A cluster with no keeper is left
-alone. Once a cluster has a keeper, its other photos are marked: dimmed,
-with a thin diagonal line. Favorites (♥) are never marked automatically.
-So I can also flip through with `j`, press `D` on what should go and `S` on
+alone. Once a cluster has a keeper, its other photos are marked: dimmed and
+struck through with one level line, photos and videos alike. Favorites (♥)
+are never marked automatically. So I can also flip through with `j`, press `D` on what should go and `S` on
 what I love.
 
 ## Deleting

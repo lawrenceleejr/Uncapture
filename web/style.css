@@ -164,7 +164,7 @@ body.fs #stage { top: 12px; bottom: 6px; left: 12px; right: 12px; }
 .look .frame img, #solo-frame img { -webkit-user-drag: none; } /* a drag out is the app's, with the photo's file */
 .look .frame > img, .look .frame > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
 /* (no blur on placeholders: a CSS filter on a big picture costs a flip its budget) */
-/* keep: the amber outline. Marked for deletion: dimmed, one thin diagonal hairline */
+/* keep: the amber outline. Marked for deletion: dimmed and struck through (.strike) */
 .look.keep .frame { box-shadow: 0 0 0 2px var(--accent); }
 .look.del .frame > img, .look.del .frame > canvas { opacity: .32; }
 /* marked for deletion: struck through. One level hairline across the middle,

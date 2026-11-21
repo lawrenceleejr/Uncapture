@@ -133,6 +133,7 @@ test('a delete from the large view comes back to the large view, on the same pho
   await page.keyboard.press('End');
   await page.waitForFunction(() => cur().length === 2);
   const keeper = await page.evaluate(() => cur()[0]);
+  await page.keyboard.press('0'); // (the last test kept it already)
   await page.keyboard.press('1');
   await page.keyboard.press(' ');
   await page.waitForSelector('#solo:not([hidden])');

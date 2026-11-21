@@ -14,6 +14,9 @@ TESTING.md.
   photos went.
 - The space cleared: large after each delete, and in all on the start screen
   (with a sparkline of it growing).
+- After a delete you're back exactly where you were, for the next batch. The
+  timeline swells under the mouse, as in Brackit. Marked photos and videos
+  are dimmed and struck through with one level line.
 - Screenshots only (`P`). Share a photo (`E`, the system share sheet) or drag
   it out of the window as a file.
 - Videos only (`V`); where each photo was taken, under it, whenever it has a
