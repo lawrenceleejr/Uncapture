@@ -1610,17 +1610,10 @@ function caption(a, pos) {
   return c;
 }
 
-function crossSvg() {
-  const NS = 'http://www.w3.org/2000/svg';
-  const s = document.createElementNS(NS, 'svg');
-  s.setAttribute('class', 'cross');
-  s.setAttribute('viewBox', '0 0 100 100');
-  s.setAttribute('preserveAspectRatio', 'none');
-  const l = document.createElementNS(NS, 'line');
-  for (const [k, v] of Object.entries({ x1: 0, y1: 100, x2: 100, y2: 0 })) l.setAttribute(k, v);
-  s.append(l);
-  return s;
-}
+// Marked for deletion: dimmed and struck through, one level hairline across
+// the middle, the same on every photo and video whatever its shape (CSS
+// shows it under .del).
+const strike = () => el('div', 'strike');
 
 let renderToken = 0;
 let lazyIO = null;
@@ -1709,7 +1702,7 @@ function render() {
       if (old) old.replaceWith(onScreen(node));
       else frame.prepend(onScreen(node));
     };
-    frame.append(crossSvg());
+    frame.append(strike());
     if (a.kind === 'video') frame.append(el('span', 'badge', '▶'));
     // a picture, if it's sharper than what's there (others' elements are copied:
     // one element can't be in two places)
@@ -2002,6 +1995,8 @@ function renderSoloCaption() {
   cap.classList.toggle('keep', S.keep.has(id));
   $('#solo').classList.toggle('keep', S.keep.has(id));
   $('#solo').classList.toggle('del', d.has(id));
+  cap.classList.toggle('del', d.has(id));
+  placeSoloStrike();
   if (c.length > 1) {
     const keys = el('span', 'keys');
     c.slice(0, 9).forEach((x, i) => {
@@ -2065,6 +2060,7 @@ function renderSolo() {
     node.style.transform = '';
     frame.replaceChildren(onScreen(node));
     if (S.solo && S.solo.zoom && level === 'full') zoomTo(S.solo.zx ?? 0.5, S.solo.zy ?? 0.5);
+    placeSoloStrike();
   };
   if (a.kind === 'video') return showVideo(id, token);
   const sharper = (level) => frame.dataset.id === id && (frame.dataset.level === 'full' || (level === 'thumb' && frame.dataset.level === 'preview'));
@@ -2149,10 +2145,29 @@ function showVideo(id, token) {
     $('#solo-note').hidden = false;
   };
   v.onloadeddata = () => stopProgress();
+  v.onloadedmetadata = () => placeSoloStrike();
   frame.dataset.id = id;
   frame.dataset.level = 'video';
   frame.replaceChildren(v);
+  placeSoloStrike();
   watchProgress(id, token);
+}
+
+// The large view's strike: across the picture (or video) as it sits on screen
+// (just what's visible of it when zoomed in).
+function placeSoloStrike() {
+  const line = $('#solo-strike');
+  const node = $('#solo-frame').firstElementChild;
+  if (!S.solo || !node) return (line.style.width = '0');
+  const r = node.getBoundingClientRect();
+  const f = $('#solo-frame').getBoundingClientRect();
+  const left = Math.max(r.left, f.left);
+  const right = Math.min(r.right, f.right);
+  const top = Math.max(r.top, f.top);
+  const bottom = Math.min(r.bottom, f.bottom);
+  line.style.left = `${left}px`;
+  line.style.width = `${Math.max(0, right - left)}px`;
+  line.style.top = `${Math.round((top + bottom) / 2)}px`;
 }
 
 function zoomTo(fx, fy) {
@@ -2170,6 +2185,7 @@ function zoomTo(fx, fy) {
   node.style.transform = `translate(${tx}px, ${ty}px)`;
   S.solo.zx = fx;
   S.solo.zy = fy;
+  placeSoloStrike();
 }
 
 function toggleZoom(e) {
@@ -2273,7 +2289,7 @@ function renderReview() {
       const pic = el('div', 'pic');
       pic.style.width = `${Math.round(w)}px`;
       pic.style.height = `${Math.round(w / r)}px`;
-      pic.append(crossSvg());
+      pic.append(strike());
       if (d.has(id)) pic.classList.add('del');
       if (x.fav) pic.append(el('span', 'badge', '♥'));
       t.append(pic);
@@ -2288,8 +2304,6 @@ function renderReview() {
     box.append(row);
     grid.append(box);
   }
-  // the hairline on what goes, as in the viewer
-  grid.querySelectorAll('.rtile.del .cross').forEach((s) => (s.style.display = 'block'));
   RV.cursor = clamp(RV.cursor, 0, Math.max(0, k - 1));
   moveReviewCursor(RV.cursor);
 }

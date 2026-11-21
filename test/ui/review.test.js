@@ -128,7 +128,8 @@ test('a delete from the large view comes back to the large view, on the same pho
   await page.waitForSelector('#viewer:not([hidden])');
   // single photos too, so the keeper's cluster stays on screen when it's alone
   await page.keyboard.press('c');
-  await page.waitForFunction(() => !S.settings.clustersOnly);
+  // (once the clusters are in: a key pressed meanwhile would be undone)
+  await page.waitForFunction(() => !S.settings.clustersOnly && S.clusters.length === 4);
   await page.keyboard.press('End');
   await page.waitForFunction(() => cur().length === 2);
   const keeper = await page.evaluate(() => cur()[0]);
