@@ -277,7 +277,7 @@ test('viewer: the window and filters re-cluster and keep your place', async () =
   await page.waitForFunction(() => S.settings.window === 60);
   // clusters only off: the single photo shows
   await page.keyboard.press('c');
-  await page.waitForFunction(() => S.clusters.length === 20);
+  await page.waitForFunction(() => S.clusters.length === 21);
   await page.keyboard.press('c');
   await page.waitForFunction(() => S.clusters.length === 16);
   // daily cleanup from the viewer (T): the header names the years

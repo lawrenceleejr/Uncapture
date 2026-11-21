@@ -84,6 +84,12 @@ photos) and in the large view.
   up to 300): downloaded with `download()` in the background, kept in
   `Application Support/Uncapture/sharp`, served by `/api/img` resized; the
   page swaps them in place (`sharpened`).
+- Locations: `Asset.location` (PhotoKit's `location`, EXIF GPS in the fake
+  library) goes to the page with the assets. Place names: `/api/place`,
+  rounded to 2 decimals, kept in `places.json`; PhotoKitSource asks
+  CLGeocoder (deprecated in the newest SDK, kept for macOS 11). Never in the
+  key press: the page queues them. With locations on, captions are two
+  lines (`CAP` in app.js) and the grid is laid out for that.
 - Marks are saved debounced; anything that reads them from the server
   (Review, delete) calls `flushMarks()` first.
 

@@ -10,8 +10,10 @@ a time. I keep the best one with a key press, and the rest of the group is
 marked for deletion. When I'm done, I look over everything that will go, and
 Uncapture deletes it from Photos in one batch.
 
-It's a small Mac app. It runs only on my Mac, has no account and uploads
-nothing.
+It's a small Mac app. It runs only on my Mac and has no account. The only
+thing that ever leaves the Mac is a photo's coordinates when I turn on
+locations (`G`): Apple's geocoder turns them into a place name, as Photos
+does.
 
 ## How it works
 
@@ -25,6 +27,10 @@ nothing.
   two-minute habit. The calendar shades each day by how recently I cleaned
   it up, and lists every time I deleted photos of that day. Photos from
   29 February show on 28 February in other years.
+- **Videos only** (`V`) shows every video, grouped the same way, alone or
+  not.
+- **Locations** (`G`, off by default) adds a line under each photo: the
+  place and the coordinates from its geotag.
 - **Dates.** On the start screen I drag across the chart of photos per month
   to pick a range, or use `←` `→`.
 
