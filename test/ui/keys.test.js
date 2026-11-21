@@ -19,10 +19,11 @@ let browser;
 let srv;
 let base;
 let photos;
+let lib;
 
 test.before(async () => {
   browser = await chromium.launch();
-  const lib = fs.mkdtempSync(path.join(os.tmpdir(), 'uncapture-keys-'));
+  lib = fs.mkdtempSync(path.join(os.tmpdir(), 'uncapture-keys-'));
   const art = await renderScenes(browser, 4, [[960, 640], [240, 160]]);
   photos = [];
   let n = 1;
@@ -74,13 +75,27 @@ test('start screen: window, filters, dates, open', async () => {
   assert.match(await text(page, '#big-n'), /^20 clusters · 60 photos$/);
   await page.keyboard.press('c');
   await settle(page, 300);
-  // daily cleanup (D): 15 January in earlier years
-  await page.keyboard.press('d');
+  // daily cleanup (T): the calendar, on today (15 January); earlier years only
+  await page.keyboard.press('t');
   await settle(page, 300);
   assert.equal(await page.$eval('#opt-daily', (e) => e.checked), true);
+  assert.equal(await page.$eval('#chart-row', (e) => e.hidden), true, 'the calendar replaces the dates chart');
+  assert.equal(await page.$eval('#cal-row', (e) => e.hidden), false);
   assert.match(await text(page, '#big-sub'), /^On this day: 2024/);
   assert.match(await text(page, '#big-n'), /^1 cluster · 3 photos$/);
-  await page.keyboard.press('d');
+  assert.match(await text(page, '#cal-day'), /^15 January \(today\) · 3 photos from 2024Not cleaned up yet\.$/);
+  // a week on (22 January has the next cluster), a month on, back to today
+  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowRight');
+  await settle(page, 300);
+  assert.match(await text(page, '#cal-day'), /^22 January · 2 photos from 2024/);
+  assert.match(await text(page, '#big-sub'), /^22 January: 2024/);
+  await page.keyboard.press('ArrowDown');
+  await settle(page, 300);
+  assert.match(await text(page, '#cal-day'), /^22 February/);
+  await page.keyboard.press('Home');
+  await settle(page, 300);
+  assert.match(await text(page, '#cal-day'), /^15 January \(today\)/);
+  await page.keyboard.press('t');
   await settle(page, 300);
   // dates: one month at a time, widen with shift, all again
   assert.equal(await text(page, '#chart-title'), 'Photos per month');
@@ -161,6 +176,24 @@ test('viewer: flip, keep, focus, clear, explicit marks, favorites', async () => 
   await page.keyboard.press('x');
   assert.equal(await looks(page), 'x* - -', 'X marks one without a keeper');
   await page.keyboard.press('0');
+  await page.keyboard.press('d');
+  assert.equal(await looks(page), 'x* - -', 'and so does D');
+  await page.keyboard.press('0');
+
+  // j / k: photo by photo, on into the next cluster and back
+  await page.keyboard.press('j');
+  await page.keyboard.press('j');
+  assert.equal(await looks(page), '- - -*');
+  await page.keyboard.press('j');
+  assert.equal(await idx(), 1, 'j at the last photo goes on to the next cluster');
+  assert.equal(await looks(page), '-* -');
+  await page.keyboard.press('k');
+  assert.equal(await idx(), 0);
+  assert.equal(await looks(page), '- - -*', 'k comes back to the last photo');
+  await page.keyboard.press('d');
+  assert.equal(await looks(page), '- - x*');
+  await page.keyboard.press('0');
+  await page.keyboard.press('Home');
 
   // cluster 3 has a favorite (its 4th photo): protected unless marked with X
   await page.keyboard.press('ArrowRight');
@@ -176,6 +209,22 @@ test('viewer: flip, keep, focus, clear, explicit marks, favorites', async () => 
   assert.match(await text(page, '#toast'), /favorite/);
   await page.keyboard.press('x');
   assert.equal(await looks(page), 'K x x -*');
+
+  // S: the heart, written to the library (fake.json here)
+  await page.keyboard.press('Home');
+  await page.keyboard.press('1');
+  await page.keyboard.press('Tab');
+  assert.equal(await looks(page), 'K x* x');
+  await page.keyboard.press('s');
+  await page.waitForFunction(() => /Favorite/.test(document.querySelector('#toast').textContent));
+  assert.equal(await looks(page), 'K -* x', 'a favorite is never marked by a keeper');
+  assert.equal(await page.$$eval('#stage .look', (l) => l[1].querySelector('.fav')?.textContent), '♥');
+  const fake = JSON.parse(fs.readFileSync(path.join(lib, 'fake.json')));
+  assert.equal(fake.files['P002.JPG'].favorite, true);
+  await page.keyboard.press('s');
+  await page.waitForFunction(() => /No longer/.test(document.querySelector('#toast').textContent));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files['P002.JPG'].favorite, false);
+  await page.keyboard.press('0');
 
   // U: the next cluster without a keeper
   await page.keyboard.press('Home');
@@ -214,13 +263,13 @@ test('viewer: the window and filters re-cluster and keep your place', async () =
   await page.waitForFunction(() => S.clusters.length === 20);
   await page.keyboard.press('c');
   await page.waitForFunction(() => S.clusters.length === 16);
-  // daily cleanup from the viewer: the header names the years
-  await page.keyboard.press('d');
+  // daily cleanup from the viewer (T): the header names the years
+  await page.keyboard.press('t');
   await page.waitForFunction(() => S.settings.daily && S.clusters.length === 1);
   assert.match(await text(page, '#where'), /^On this day: 2024 \(1 cluster\)$/);
   await settle(page, 400);
   assert.equal(await page.evaluate(() => S.server.dailyDone), '2025-01-15', 'reaching the end finishes daily cleanup');
-  await page.keyboard.press('d');
+  await page.keyboard.press('t');
   await page.waitForFunction(() => !S.settings.daily && S.clusters.length === 16);
   assert.deepEqual(errors, []);
   await page.close();
@@ -301,7 +350,7 @@ test('every Mac menu bar item is a Menu command, and every command runs', async 
   const groups = await page.evaluate(() => MENU.map(([t]) => t.toLowerCase()));
   for (const g of groups) assert.ok(gui.toLowerCase().includes(`"${g}"`), `menu bar group ${g}`);
   // run each from the Menu, as the menu bar does
-  for (const id of ['next', 'prev', 'next10', 'prev10', 'last', 'first', 'focus', 'keep', 'keepall', 'clear', 'mark', 'clear', 'nextopen', 'large', 'zoom', 'large', 'longer', 'shorter', 'clustersonly', 'clustersonly', 'review', 'review', 'keys']) {
+  for (const id of ['next', 'prev', 'next10', 'prev10', 'last', 'first', 'nextphoto', 'prevphoto', 'focus', 'keep', 'keepall', 'clear', 'mark', 'clear', 'nextopen', 'large', 'zoom', 'large', 'longer', 'shorter', 'clustersonly', 'clustersonly', 'review', 'review', 'keys']) {
     await page.evaluate((id) => window.uncaptureCommand(id), id);
     await settle(page, 60);
   }

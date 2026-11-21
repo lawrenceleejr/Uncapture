@@ -167,6 +167,13 @@ test('library: daily cleanup is this day in earlier years, by each photo\'s own 
   assert.deepEqual(clusterNames(only), [['Y22.JPG', 'Y22b.JPG']]);
 });
 
+test('library: daily cleanup on a chosen day of the year', async () => {
+  const d = (await api('GET', '/api/library?onThisDay=1&clustersOnly=0&day=06-02')).data;
+  assert.deepEqual(clusterNames(d), [['JUNE2.JPG']]);
+  const bad = (await api('GET', '/api/library?onThisDay=1&clustersOnly=0&day=02-30')).data;
+  assert.equal(bad.years.length, 2, 'a day that does not exist: today');
+});
+
 test('library: a date range keeps the clusters that start in it', async () => {
   const r = (await api('GET', '/api/library?from=2023-06-01&to=2023-06-02&clustersOnly=0')).data;
   assert.deepEqual(clusterNames(r), [['Y23.JPG'], ['TOKYO.JPG'], ['JUNE2.JPG']]);
@@ -284,6 +291,33 @@ test('delete: exactly the marked photos go, and only what is still marked', asyn
   const st = (await api('GET', '/api/state')).data;
   assert.equal(st.firstDeleteSeen, true);
   assert.deepEqual(st.marks.keep, [idOf('A2.JPG')]);
+});
+
+test('delete from daily cleanup logs the day of the year, with how many of its photos went', async () => {
+  await api('PUT', '/api/marks', { keep: [idOf('Y22.JPG')], del: [idOf('JUNE2.JPG')], window: 60 });
+  const r = (await api('POST', '/api/delete', { ids: [idOf('Y22b.JPG'), idOf('JUNE2.JPG')], window: 60, day: '06-01' })).data;
+  assert.equal(r.deleted, 2);
+  const st = (await api('GET', '/api/state')).data;
+  assert.deepEqual(st.dailyLog, { '06-01': [{ date: '2025-06-01', deleted: 1 }] }, 'only Y22b was taken on 1 June');
+  // a delete that removes nothing of that day logs nothing
+  await api('PUT', '/api/marks', { keep: [idOf('C1.JPG')], del: [], window: 60 });
+  await api('POST', '/api/delete', { ids: [idOf('C2.JPG')], window: 60, day: '03-03' });
+  assert.deepEqual((await api('GET', '/api/state')).data.dailyLog, { '06-01': [{ date: '2025-06-01', deleted: 1 }] });
+});
+
+test('favorite: the heart is written to the library and protects the photo', async () => {
+  await api('PUT', '/api/marks', { keep: [idOf('D1.JPG')], del: [], window: 60 });
+  assert.equal((await api('GET', '/api/review?window=60')).data.clusters.find((c) => c.ids.includes(idOf('D2.JPG'))).del.length, 2);
+  const r = await api('POST', '/api/favorite', { ids: [idOf('D2.JPG')], on: true });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.favorite, true);
+  const g = (await api('GET', '/api/review?window=60')).data.clusters.find((c) => c.ids.includes(idOf('D2.JPG')));
+  assert.deepEqual(names(g.del), ['D3.JPG'], 'a favorite is not marked by a keeper');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files['D2.JPG'].favorite, true);
+  await api('POST', '/api/favorite', { ids: [idOf('D2.JPG')], on: false });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files['D2.JPG'].favorite, false);
+  assert.equal((await api('POST', '/api/favorite', { ids: ['0000000000000000'], on: true })).status, 404);
+  await api('PUT', '/api/marks', { keep: [], del: [], window: 60 });
 });
 
 test('delete: a photo gone from the library meanwhile is skipped and reported', async () => {

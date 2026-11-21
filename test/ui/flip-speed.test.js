@@ -162,10 +162,23 @@ test('large view (space): arrow presses paint within 50 ms, cold slow library, q
   await page.close();
 });
 
+test('j held down through photos and clusters: every step paints within 50 ms', async () => {
+  const { page, errors } = await openViewer({ settle: 1500 });
+  await page.evaluate(() => (window.__keyDurations = []));
+  for (let i = 0; i < 40; i++) await page.keyboard.press('j');
+  await page.waitForTimeout(300);
+  const d = await page.evaluate(() => window.__keyDurations.slice());
+  report('j held', d);
+  assert.deepEqual(d.filter((x) => x > BUDGET_MS), []);
+  assert.ok((await page.evaluate(() => S.idx)) > 3, 'moved on through several clusters');
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test('marking (1–9, Tab, Enter) paints within 50 ms', async () => {
   const { page, errors } = await openViewer({ settle: 1500 });
   await page.evaluate(() => (window.__keyDurations = []));
-  for (const k of ['1', '2', 'Tab', 'Enter', '0', 'a', '0', '3', 'x', 'x', '0']) {
+  for (const k of ['1', '2', 'Tab', 'Enter', '0', 'a', '0', '3', 'd', 'd', 'j', 'd', '0']) {
     await page.keyboard.press(k);
     await page.waitForTimeout(60);
   }
@@ -177,8 +190,9 @@ test('marking (1–9, Tab, Enter) paints within 50 ms', async () => {
   await page.close();
 });
 
-// Forward is → ↓ j, back is ← ↑ k, in the grid and in the large view alike.
-test('every flip key moves a cluster, within 50 ms', async () => {
+// Clusters: → ↓ forward, ← ↑ back; photos: j forward, k back, across
+// clusters. In the grid and in the large view alike.
+test('every flip key moves, within 50 ms', async () => {
   const { page, errors } = await openViewer({ settle: 1500 });
   const pos = () => page.evaluate(() => S.idx);
   for (const large of [false, true]) {
@@ -186,7 +200,7 @@ test('every flip key moves a cluster, within 50 ms', async () => {
       await page.keyboard.press(' ');
       await page.waitForTimeout(500);
     }
-    for (const [key, d] of [['ArrowRight', 1], ['ArrowDown', 1], ['j', 1], ['ArrowLeft', -1], ['ArrowUp', -1], ['k', -1]]) {
+    for (const [key, d] of [['ArrowRight', 1], ['ArrowDown', 1], ['ArrowLeft', -1], ['ArrowUp', -1]]) {
       const before = await pos();
       await page.keyboard.press(key);
       assert.equal(await pos(), before + d, `${key} ${large ? 'in the large view ' : ''}should move ${d}`);
@@ -196,8 +210,18 @@ test('every flip key moves a cluster, within 50 ms', async () => {
   await page.keyboard.press('Shift+ArrowRight');
   assert.equal(await pos(), before + 10, 'Shift jumps ten');
   await page.evaluate(() => (window.__keyDurations = []));
+  // j / k move a photo; at a cluster's end, on to the next cluster
+  const at = () => page.evaluate(() => [S.idx, S.focus]);
+  const [i0] = await at();
+  const n = await page.evaluate(() => cur().length);
+  for (let p = 0; p < n; p++) await page.keyboard.press('j');
+  assert.deepEqual(await at(), [i0 + 1, 0]);
+  await page.keyboard.press('k');
+  assert.deepEqual(await at(), [i0, n - 1]);
+  await page.evaluate(() => (window.__keyDurations = []));
   const r = await flip(page, { presses: 24, gapMs: 120, large: true, keys: ['j', 'ArrowDown', 'k', 'j', 'ArrowUp', 'j'] });
-  assertFast('j / k / ↑ / ↓', r);
+  report('j / k / ↑ / ↓', r.durations);
+  assert.deepEqual(r.durations.filter((d) => d > BUDGET_MS), []);
   assert.deepEqual(errors, []);
   await page.close();
 });
