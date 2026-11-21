@@ -328,6 +328,12 @@ test('delete: exactly the marked photos go, and only what is still marked', asyn
   assert.equal(r.cancelled, false);
   assert.deepEqual(fs.readdirSync(path.join(lib, '.trash')).sort(), ['A1.JPG', 'A3.JPG']);
   assert.ok(fs.existsSync(path.join(lib, 'B1.JPG')) && fs.existsSync(path.join(lib, 'A2.JPG')));
+  // the space it cleared, logged for "cleared so far"
+  const size = (n) => fs.statSync(path.join(lib, '.trash', n)).size;
+  assert.equal(r.bytes, size('A1.JPG') + size('A3.JPG'));
+  assert.equal(r.allBytes, r.bytes);
+  assert.equal(r.allPhotos, 2);
+  assert.deepEqual((await api('GET', '/api/state')).data.deletions, [{ date: '2025-06-01', photos: 2, bytes: r.bytes }]);
   // the library is read again without them; the keeper's mark stays
   for (let i = 0; i < 50; i++) {
     const st = (await api('GET', '/api/state')).data;

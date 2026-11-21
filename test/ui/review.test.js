@@ -45,7 +45,7 @@ test('review and delete: exactly what is marked goes, after the confirmation', a
   assert.match(await page.$eval('#c-del', (e) => e.textContent), /^5 to delete so far/);
 
   await page.keyboard.press('r');
-  await page.waitForFunction(() => /^Delete 5 photos · about /.test(document.querySelector('#review-title').textContent));
+  await page.waitForFunction(() => /^Delete 5 photos · frees about \d+ (KB|MB)$/.test(document.querySelector('#review-title').textContent));
   assert.equal(await page.$$eval('#review-grid .rgroup', (g) => g.length), 2);
   // take one back: X on the first that goes (IMG_0001) keeps it instead
   await page.keyboard.press('x');
@@ -68,9 +68,14 @@ test('review and delete: exactly what is marked goes, after the confirmation', a
   await page.keyboard.press('Enter');
   await page.waitForSelector('#first:not([hidden])');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => /^Deleted 4\./.test(document.querySelector('#review-result').textContent), null, { timeout: 10000 });
+  await page.waitForFunction(() => /Deleted 4 photos\./.test(document.querySelector('#review-result').textContent), null, { timeout: 10000 });
   const result = await page.$eval('#review-result', (e) => e.textContent);
-  assert.match(result, /Recently Deleted in Photos for 30 days; empty it there to free the iCloud space now\./);
+  assert.match(result, /Recently Deleted in Photos for 30 days: iCloud gets the space back then, or as soon as you empty it there\./);
+  // the space cleared, first and large: the files' sizes here
+  const cleared = ['IMG_0003.JPG', 'IMG_0004.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG'].reduce((t, n) => t + fs.statSync(path.join(lib, '.trash', n)).size, 0);
+  const big = await page.$eval('#review-result .cleared .big', (e) => e.textContent);
+  assert.equal(big, cleared >= 1e6 ? `${Math.round(cleared / 1e6)} MB` : `${Math.round(cleared / 1e3)} KB`);
+  assert.match(await page.$eval('#review-result .cleared', (e) => e.textContent), / cleared$/);
   assert.deepEqual(trash(), ['IMG_0003.JPG', 'IMG_0004.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG']);
   for (const kept of ['IMG_0001.JPG', 'IMG_0002.JPG', 'IMG_0007.JPG']) assert.ok(fs.existsSync(path.join(lib, kept)), kept);
 
@@ -78,6 +83,14 @@ test('review and delete: exactly what is marked goes, after the confirmation', a
   await page.waitForFunction(() => document.querySelector('#review-title').textContent === 'Nothing to delete');
   assert.equal(await page.evaluate(() => S.assets.length), photos.length - 4);
   assert.equal(await page.$eval('#open-photos', (b) => b.hidden), false);
+  // the start screen keeps the running total, with its sparkline
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('o');
+  await page.waitForSelector('#start:not([hidden])');
+  assert.equal(await page.$eval('#saved-row', (r) => r.hidden), false);
+  assert.equal(await page.$eval('#saved-n', (e) => e.textContent), big);
+  assert.match(await page.$eval('#saved-sub', (e) => e.textContent), /^4 photos since /);
+  assert.ok(await page.$eval('#saved-spark path', (p) => p.getAttribute('d').includes('V')));
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -89,7 +102,7 @@ test('a cancelled confirmation deletes nothing, and says so; no explanation the 
   await page.keyboard.press('End');
   await page.keyboard.press('1');
   await page.keyboard.press('r');
-  await page.waitForFunction(() => /^Delete 1 photo · about /.test(document.querySelector('#review-title').textContent));
+  await page.waitForFunction(() => /^Delete 1 photo · frees about /.test(document.querySelector('#review-title').textContent));
   fs.writeFileSync(path.join(lib, '.cancel-delete'), '');
   try {
     await page.keyboard.press('Enter');

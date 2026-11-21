@@ -223,6 +223,7 @@ function showStart() {
   $('#opt-videos').checked = S.settings.videosOnly;
   $('#opt-geo').checked = S.settings.geo;
   renderDaily();
+  renderSaved();
   ST.bins = chartBins();
   drawChart();
   showDailyRows();
@@ -234,6 +235,37 @@ function showDailyRows() {
   $('#chart-row').hidden = S.settings.daily;
   $('#cal-row').hidden = !S.settings.daily;
   if (S.settings.daily) drawCalendar();
+}
+
+/* Cleared so far: the total, a sparkline of it growing from the first delete
+   to today (a step at each delete, the last value marked), and the facts. */
+function renderSaved() {
+  const log = S.server.deletions || [];
+  $('#saved-row').hidden = !log.length;
+  if (!log.length) return;
+  const bytes = log.reduce((t, d) => t + d.bytes, 0);
+  const photos = log.reduce((t, d) => t + d.photos, 0);
+  $('#saved-n').textContent = fmtBytes(bytes);
+  const first = log[0].date;
+  $('#saved-sub').textContent = `${fmtN(photos)} photo${photos === 1 ? '' : 's'} since ${niceDay(first)} · the last ${fmtBytes(log.at(-1).bytes)} on ${niceDay(log.at(-1).date)}`;
+  const svg = $('#saved-spark');
+  const W = 180;
+  const H = 28;
+  const t0 = Date.parse(first);
+  const t1 = Math.max(Date.parse(S.server.today), Date.parse(log.at(-1).date)) + 864e5;
+  const x = (t) => ((t - t0) / (t1 - t0)) * W;
+  const y = (b) => H - 2 - (b / bytes) * (H - 4);
+  let total = 0;
+  let d = `M0 ${y(0)}`;
+  for (const e of log) {
+    const xe = x(Date.parse(e.date)).toFixed(1);
+    d += ` H${xe}`;
+    total += e.bytes;
+    d += ` V${y(total).toFixed(1)}`;
+  }
+  d += ` H${W}`;
+  svg.innerHTML = `<line class="base" x1="0" x2="${W}" y1="${H - 1.5}" y2="${H - 1.5}"/><path d="${d}"/><circle cx="${W}" cy="${y(total)}" r="2"/>`;
+  svg.setAttribute('aria-label', `${fmtBytes(bytes)} cleared since ${niceDay(first)}`);
 }
 
 function renderDaily() {
@@ -2076,7 +2108,7 @@ function renderReview() {
   const ids = reviewIds();
   const bytes = ids.reduce((s, id) => s + (RV.bytes[id] || 0), 0);
   const n = ids.length;
-  $('#review-title').textContent = n ? `Delete ${fmtN(n)} photo${n === 1 ? '' : 's'} · about ${fmtBytes(bytes)}` : 'Nothing to delete';
+  $('#review-title').textContent = n ? `Delete ${fmtN(n)} photo${n === 1 ? '' : 's'} · frees about ${fmtBytes(bytes)}` : 'Nothing to delete';
   const favs = ids.filter((id) => S.byId.get(id)?.fav).length;
   const groups = RV.data.clusters.filter((g) => delOf(g.ids).size).length;
   $('#review-sub').textContent = n
@@ -2189,15 +2221,22 @@ async function doDelete() {
   res.textContent = `Waiting for macOS to confirm deleting ${fmtN(ids.length)}…`;
   const r = await api('POST', '/api/delete', { ids, window: S.settings.window, day: S.settings.daily ? dailyDay() : undefined }).catch((e) => ({ error: e.message, deleted: 0 }));
   RV.busy = false;
-  let msg;
-  if (r.cancelled) msg = 'Nothing was deleted: the confirmation was cancelled.';
-  else if (r.error && !r.deleted) msg = `Nothing was deleted. Photos said: ${r.error}`;
+  res.replaceChildren();
+  if (r.cancelled) res.textContent = 'Nothing was deleted: the confirmation was cancelled.';
+  else if (r.error && !r.deleted) res.textContent = `Nothing was deleted. Photos said: ${r.error}`;
   else {
-    msg = `Deleted ${fmtN(r.deleted)}. They're in Recently Deleted in Photos for 30 days; empty it there to free the iCloud space now.`;
+    // the space first, large; then what happens to it
+    if (r.deleted) {
+      const head = el('div', 'cleared');
+      head.append(el('span', 'big num', `${fmtBytes(r.bytes || 0)}`), 'cleared');
+      res.append(head);
+    }
+    let msg = `Deleted ${fmtN(r.deleted)} photo${r.deleted === 1 ? '' : 's'}. They're in Recently Deleted in Photos for 30 days: iCloud gets the space back then, or as soon as you empty it there.`;
     if (r.missing) msg += ` ${fmtN(r.missing)} were already gone from Photos and were skipped.`;
     if (r.skipped) msg += ` ${fmtN(r.skipped)} were no longer marked and stayed.`;
+    res.append(el('div', 'what', msg));
+    if (r.deleted && r.allBytes > r.bytes) res.append(el('div', 'total', `In all, Uncapture has cleared ${fmtBytes(r.allBytes)}: ${fmtN(r.allPhotos)} photos.`));
   }
-  res.textContent = msg;
   res.classList.toggle('done', !!r.deleted);
   if (r.deleted || r.missing) {
     // the marks of what went are cleared (the server did the same)

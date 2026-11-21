@@ -125,6 +125,14 @@ kbd {
 .cal-legend .s0 { background: none; box-shadow: inset 0 0 0 1px var(--faint); }
 .cal-legend .dot { width: 3px; height: 3px; background: var(--faint); margin: 0 3px 0 11px; }
 
+/* cleared so far: the total, a sparkline of it growing, the facts */
+.saved { display: flex; align-items: baseline; gap: 16px; }
+#saved-n { font-size: 22px; letter-spacing: .01em; }
+#saved-spark { align-self: center; overflow: visible; }
+#saved-spark path { fill: none; stroke: var(--ink); stroke-width: 1; }
+#saved-spark circle { fill: var(--ink); }
+#saved-spark .base { stroke: var(--hair); stroke-width: 1; }
+
 /* the window steps: a log scale, the current one in ink */
 .steps { display: flex; gap: 0; align-items: baseline; border-bottom: 1px solid var(--hair); }
 .steps button { flex: 1; text-align: left; color: var(--muted); padding: 2px 0 6px; position: relative; }
@@ -227,8 +235,11 @@ body.fs #peek { display: none; }
 .review-head h2 { font-weight: 400; font-size: 20px; margin: 0 0 2px; }
 .review-actions { display: flex; align-items: center; gap: 16px; }
 .close { font-size: 22px; line-height: 1; margin-left: 6px; }
-#review-result { min-height: 30px; padding: 8px 0 0; font-size: 13px; }
+#review-result { min-height: 30px; padding: 8px 0 6px; font-size: 13px; line-height: 1.5; }
 #review-result.done { color: var(--ink); }
+#review-result .cleared { font-size: 15px; color: var(--ink); margin: 2px 0 4px; }
+#review-result .cleared .big { font-size: 28px; letter-spacing: .01em; margin-right: 8px; }
+#review-result .total { color: var(--muted); margin-top: 4px; }
 #review-scroll { flex: 1; overflow-y: auto; padding-bottom: 40px; }
 .rgroup { padding: 10px 0 16px; border-bottom: 1px solid var(--hair); }
 .rgroup-head { display: flex; gap: 12px; color: var(--ink); margin-bottom: 8px; }

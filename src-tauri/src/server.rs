@@ -53,7 +53,17 @@ struct State {
     /// daily cleanup, by day of the year ("MM-DD"): each time photos of that
     /// day were deleted from daily cleanup, when and how many
     daily_log: std::collections::BTreeMap<String, Vec<DailyEntry>>,
+    /// every delete: when, how many, about how many bytes (the space cleared)
+    deletions: Vec<Deletion>,
     first_delete_seen: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Deletion {
+    /// "YYYY-MM-DD"
+    date: String,
+    photos: usize,
+    bytes: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -533,6 +543,7 @@ fn state_json(app: &App) -> Value {
         "settings": s.settings,
         "dailyDone": s.daily_done,
         "dailyLog": s.daily_log,
+        "deletions": s.deletions,
         "today": fmt_day(today()),
         "firstDeleteSeen": s.first_delete_seen,
         "windows": cluster::WINDOWS,
@@ -809,8 +820,17 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 }
                 None => HashSet::new(),
             };
+            // the space they take, measured before they go
+            let sizes: HashMap<String, u64> = {
+                let idx: Vec<usize> = {
+                    let lib = app.lib.read().unwrap();
+                    targets.iter().filter_map(|id| lib.by_id.get(id).copied()).collect()
+                };
+                app.sizes_of(&idx).into_iter().collect()
+            };
             // macOS shows its own confirmation here; this waits for the answer
             let out = app.src.delete(&targets);
+            let bytes: u64 = out.deleted.iter().filter_map(|id| sizes.get(id)).sum();
             if !out.deleted.is_empty() || !out.missing.is_empty() {
                 let gone: HashSet<&String> = out.deleted.iter().chain(out.missing.iter()).filter_map(|id| local.get(id)).collect();
                 let mut s = app.state.lock().unwrap();
@@ -821,13 +841,23 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 if let (Some((m, d)), true) = (daily_day, n > 0) {
                     s.daily_log.entry(format!("{:02}-{:02}", m, d)).or_default().push(DailyEntry { date: fmt_day(today()), deleted: n });
                 }
+                if !out.deleted.is_empty() {
+                    s.deletions.push(Deletion { date: fmt_day(today()), photos: out.deleted.len(), bytes });
+                }
             }
+            let (all_photos, all_bytes) = {
+                let s = app.state.lock().unwrap();
+                (s.deletions.iter().map(|d| d.photos).sum::<usize>(), s.deletions.iter().map(|d| d.bytes).sum::<u64>())
+            };
             app.save_state();
             app.refresh();
             send_json(
                 req,
                 200,
-                json!({ "deleted": out.deleted.len(), "missing": out.missing.len(), "skipped": skipped, "cancelled": out.cancelled, "error": out.error }),
+                json!({
+                    "deleted": out.deleted.len(), "missing": out.missing.len(), "skipped": skipped, "cancelled": out.cancelled, "error": out.error,
+                    "bytes": bytes, "allPhotos": all_photos, "allBytes": all_bytes,
+                }),
             )
         }
         ("/api/favorite", _, true, _) => {
