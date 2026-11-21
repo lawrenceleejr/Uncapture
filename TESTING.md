@@ -60,6 +60,14 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
       `npm start`/`--serve` mode only the coordinates show (Apple's geocoder
       answers on the app window's main thread).
 - [ ] **Videos only.** `V` shows every video, singles too; `Space` plays one.
+- [ ] **Screenshots only.** `P` shows every screenshot (singles too).
+- [ ] **Share.** `E` on a photo: the share sheet opens beside it; send one to
+      yourself in Messages. It arrives as the photo, edits included. In the
+      large view too. An iCloud-only photo shows "Getting the photo ready…"
+      first.
+- [ ] **Drag out.** Drag a photo from the grid into a Finder window, and one
+      from the large view into Messages: each drops as its file. A click
+      (no drag) still opens the large view.
 - [ ] **Sharp in the grid.** With "Optimize Mac Storage" on, flip through
       older photos in the grid: they turn sharp (an iCloud fetch when the
       Mac only has a small copy). `Space` on one and back: it stays sharp.

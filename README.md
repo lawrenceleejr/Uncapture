@@ -27,6 +27,8 @@ does.
   two-minute habit. The calendar shades each day by how recently I cleaned
   it up, and lists every time I deleted photos of that day. Photos from
   29 February show on 28 February in other years.
+- **Screenshots only** (`P`) shows every screenshot the same way; they
+  cluster well, and they're the easiest to let go.
 - **Videos only** (`V`) shows every video, grouped the same way, alone or
   not.
 - **Locations.** In a cluster with geotags, a second line under each photo
@@ -45,6 +47,11 @@ In the viewer:
 | `A`, `0` | keep all, clear the cluster |
 | `D` (or `X`) | mark the photo for deletion (also how to delete a favorite) |
 | `S` | heart it in Photos (or take the heart off) |
+| `E` | share it: the Mac's share sheet (Messages, Mail, AirDrop…) |
+
+When I come across a memory worth sending, `E` shares it, or I drag the photo
+out of the window into Messages or a folder. Either way it's the photo's own
+file from Photos, with my edits.
 | `Space` | the photo large; `Z` actual pixels |
 | `R` | review everything marked |
 | `M`, `?` | every action, every key |

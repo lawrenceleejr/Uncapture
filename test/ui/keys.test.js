@@ -54,7 +54,7 @@ const text = (page, sel) => page.$eval(sel, (e) => e.textContent);
 // each test starts from the defaults, nothing marked
 test.beforeEach(async () => {
   const put = (u, body) => fetch(base + u, { method: 'PUT', headers: { 'X-Uncapture': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  await put('/api/settings', { window: 60, clustersOnly: true, daily: false, videosOnly: false, from: null, to: null });
+  await put('/api/settings', { window: 60, clustersOnly: true, daily: false, videosOnly: false, screenshotsOnly: false, from: null, to: null });
   await put('/api/marks', { keep: [], del: [] });
 });
 const settle = (page, ms = 150) => page.waitForTimeout(ms);

@@ -92,6 +92,14 @@ photos) and in the large view.
   up to 300): downloaded with `download()` in the background, kept in
   `Application Support/Uncapture/sharp`, served by `/api/img` resized; the
   page swaps them in place (`sharpened`).
+- Share (`E`) and drag out: `/api/share` and `/api/drag` write the photo's
+  own file (`export_original`: the edited version, its original name) into
+  `Application Support/Uncapture/share/<id>/`, then ask the window
+  (`gui.rs`): NSSharingServicePicker, or a native drag via the `drag` crate,
+  on the main thread. No window (a browser): Share downloads
+  `/api/original/<id>`; drag says it's the Mac app's.
+- The page always sends `videosOnly`/`screenshotsOnly` (and the other
+  filters) explicitly: a left-out parameter falls back to the saved setting.
 - Locations: `Asset.location` (PhotoKit's `location`, EXIF GPS in the fake
   library) goes to the page with the assets. Place names: `/api/place`,
   rounded to 2 decimals, kept in `places.json`; PhotoKitSource asks

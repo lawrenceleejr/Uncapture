@@ -291,8 +291,9 @@ function libraryUrl() {
   const s = S.settings;
   const q = new URLSearchParams({ window: s.window, clustersOnly: s.clustersOnly ? 1 : 0, onThisDay: s.daily ? 1 : 0 });
   if (s.daily) q.set('day', dailyDay());
-  if (s.videosOnly) q.set('videosOnly', 1);
-  if (s.screenshotsOnly) q.set('screenshotsOnly', 1);
+  // (said either way: left out, the server would use its saved setting)
+  q.set('videosOnly', s.videosOnly ? 1 : 0);
+  q.set('screenshotsOnly', s.screenshotsOnly ? 1 : 0);
   if (!s.daily && s.from) q.set('from', s.from);
   if (!s.daily && s.to) q.set('to', s.to);
   return '/api/library?' + q;

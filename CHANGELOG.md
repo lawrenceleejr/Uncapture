@@ -14,6 +14,8 @@ TESTING.md.
   photos went.
 - The space cleared: large after each delete, and in all on the start screen
   (with a sparkline of it growing).
+- Screenshots only (`P`). Share a photo (`E`, the system share sheet) or drag
+  it out of the window as a file.
 - Videos only (`V`); where each photo was taken, under it, whenever it has a
   geotag, with place names from Apple's geocoder; the date and time in every
   caption.
