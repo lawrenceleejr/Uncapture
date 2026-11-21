@@ -33,6 +33,31 @@ pub fn run(src: Arc<dyn PhotoSource>) {
                         let _ = w.set_fullscreen(on);
                         json!({ "fullscreen": on })
                     }
+                    // the system share sheet beside the photo (page coordinates)
+                    #[cfg(target_os = "macos")]
+                    "share" => {
+                        let path = std::path::PathBuf::from(body["path"].as_str().unwrap_or(""));
+                        let (x, y) = (body["x"].as_f64().unwrap_or(0.0), body["y"].as_f64().unwrap_or(0.0));
+                        let w2 = w.clone();
+                        let _ = w.run_on_main_thread(move || {
+                            if let Ok(view) = w2.ns_view() {
+                                macos::share(view, &path, x, y);
+                            }
+                        });
+                        json!({ "shared": true })
+                    }
+                    // the photo's file dragged out of the window, as the mouse moves
+                    #[cfg(target_os = "macos")]
+                    "drag" => {
+                        let path = std::path::PathBuf::from(body["path"].as_str().unwrap_or(""));
+                        let icon = std::path::PathBuf::from(body["icon"].as_str().unwrap_or(""));
+                        let w2 = w.clone();
+                        let _ = w.run_on_main_thread(move || {
+                            let image = if icon.exists() { drag::Image::File(icon) } else { drag::Image::Raw(Vec::new()) };
+                            let _ = drag::start_drag(&w2, drag::DragItem::Files(vec![path]), image, |_, _| {}, drag::Options::default());
+                        });
+                        json!({ "dragging": true })
+                    }
                     _ => json!({ "fullscreen": w.is_fullscreen().unwrap_or(false) }),
                 }
             }));
@@ -97,7 +122,7 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
                 h,
                 "Look Closely",
                 true,
-                &[&item("large", "Large View   Space")?, &item("zoom", "Actual Pixels   Z")?, &P::separator(h)?, &item("fullscreen", "Full Screen   F")?],
+                &[&item("large", "Large View   Space")?, &item("share", "Share Photo…   E")?, &item("zoom", "Actual Pixels   Z")?, &P::separator(h)?, &item("fullscreen", "Full Screen   F")?],
             )?,
             &Submenu::with_items(
                 h,
@@ -109,6 +134,7 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
                     &P::separator(h)?,
                     &item("clustersonly", "Clusters Only   C")?,
                     &item("videosonly", "Videos Only   V")?,
+                    &item("screenshotsonly", "Screenshots Only   P")?,
                     &item("daily", "Daily Cleanup (On This Day)   T")?,
                     &P::separator(h)?,
                     &item("start", "Dates and Filters…   O")?,
@@ -124,4 +150,35 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
             &Submenu::with_items(h, "Help", true, &[&item("menu", "Menu   M")?, &item("keys", "Keyboard Shortcuts   ?")?])?,
         ],
     )
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use objc2::rc::Retained;
+    use objc2::{AllocAnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSSharingServicePicker, NSView};
+    use objc2_foundation::{NSArray, NSPoint, NSRect, NSRectEdge, NSSize, NSString, NSURL};
+
+    /// NSSharingServicePicker for one file, shown at (x, y) in the page.
+    pub fn share(view: *mut std::ffi::c_void, path: &std::path::Path, x: f64, y: f64) {
+        // AppKit: on the main thread only
+        if MainThreadMarker::new().is_none() {
+            return;
+        }
+        if view.is_null() {
+            return;
+        }
+        let view: &NSView = unsafe { &*(view as *const NSView) };
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
+        let items: Retained<NSArray<NSURL>> = NSArray::from_retained_slice(&[url]);
+        let items: &NSArray = unsafe { &*(Retained::as_ptr(&items) as *const NSArray) };
+        let picker = unsafe { NSSharingServicePicker::initWithItems(NSSharingServicePicker::alloc(), items) };
+        // the page's y runs down; the window's content view's runs up
+        let h = view.bounds().size.height;
+        let vy = if view.isFlipped() { y } else { h - y };
+        let rect = NSRect::new(NSPoint::new(x - 1.0, vy - 1.0), NSSize::new(2.0, 2.0));
+        picker.showRelativeToRect_ofView_preferredEdge(rect, view, NSRectEdge::MinY);
+        // AppKit shows it from here on; keep it alive until it's dismissed
+        std::mem::forget(picker);
+    }
 }

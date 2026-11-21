@@ -161,6 +161,7 @@ body.fs #stage { top: 12px; bottom: 6px; left: 12px; right: 12px; }
 .look { display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .look .box { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; }
 .look .frame { position: relative; cursor: zoom-in; background: #050505; }
+.look .frame img, #solo-frame img { -webkit-user-drag: none; } /* a drag out is the app's, with the photo's file */
 .look .frame > img, .look .frame > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
 /* (no blur on placeholders: a CSS filter on a big picture costs a flip its budget) */
 /* keep: the amber outline. Marked for deletion: dimmed, one thin diagonal hairline */

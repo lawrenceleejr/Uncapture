@@ -38,7 +38,7 @@ const S = {
   focus: 0, // position of the focused photo in the cluster
   keep: new Set(),
   del: new Set(),
-  settings: { window: 60, clustersOnly: true, daily: false, videosOnly: false, from: null, to: null },
+  settings: { window: 60, clustersOnly: true, daily: false, videosOnly: false, screenshotsOnly: false, from: null, to: null },
   toDelete: 0,
   solo: null, // {zoom}
   dailyDay: null, // the day of the year for daily cleanup, "MM-DD" (today by default)
@@ -185,6 +185,7 @@ function updateWhere() {
     if (last) w.append(` · last cleaned up ${niceDay(last.date)}`);
   } else w.textContent = rangeLabel();
   if (S.settings.videosOnly) w.append(' · videos only');
+  if (S.settings.screenshotsOnly) w.append(' · screenshots only');
 }
 
 function updateDeleteCount() {
@@ -221,6 +222,7 @@ function showStart() {
   $('#opt-clusters').checked = S.settings.clustersOnly;
   $('#opt-daily').checked = S.settings.daily;
   $('#opt-videos').checked = S.settings.videosOnly;
+  $('#opt-shots').checked = S.settings.screenshotsOnly;
   renderDaily();
   renderSaved();
   ST.bins = chartBins();
@@ -290,6 +292,7 @@ function libraryUrl() {
   const q = new URLSearchParams({ window: s.window, clustersOnly: s.clustersOnly ? 1 : 0, onThisDay: s.daily ? 1 : 0 });
   if (s.daily) q.set('day', dailyDay());
   if (s.videosOnly) q.set('videosOnly', 1);
+  if (s.screenshotsOnly) q.set('screenshotsOnly', 1);
   if (!s.daily && s.from) q.set('from', s.from);
   if (!s.daily && s.to) q.set('to', s.to);
   return '/api/library?' + q;
@@ -306,8 +309,9 @@ function refreshStart() {
     S.toDelete = lib.toDelete;
     updateDeleteCount();
     const n = lib.clusters.length;
-    $('#big-n').textContent = S.settings.videosOnly
-      ? `${fmtN(lib.photos)} video${lib.photos === 1 ? '' : 's'} · ${fmtN(n)} cluster${n === 1 ? '' : 's'}`
+    const what = S.settings.videosOnly ? 'video' : S.settings.screenshotsOnly ? 'screenshot' : null;
+    $('#big-n').textContent = what
+      ? `${fmtN(lib.photos)} ${what}${lib.photos === 1 ? '' : 's'} · ${fmtN(n)} cluster${n === 1 ? '' : 's'}`
       : `${fmtN(n)} cluster${n === 1 ? '' : 's'} · ${fmtN(lib.photos)} photo${lib.photos === 1 ? '' : 's'}`;
     const where = S.settings.daily
       ? lib.years.length
@@ -537,6 +541,7 @@ function bindStart() {
   $('#opt-clusters').onchange = (e) => setClustersOnly(e.target.checked);
   $('#opt-daily').onchange = (e) => setDaily(e.target.checked);
   $('#opt-videos').onchange = (e) => setVideosOnly(e.target.checked);
+  $('#opt-shots').onchange = (e) => setScreenshotsOnly(e.target.checked);
   $('#start-open').onclick = () => openViewer();
   $('#start-review').onclick = () => openReview();
   $('#start-return').onclick = () => backToViewer();
@@ -566,12 +571,23 @@ function setClustersOnly(on) {
   if (!$('#start').hidden) refreshStart();
   else recluster(on ? 'Clusters only' : 'Single photos too');
 }
+// Videos only and screenshots only: one or the other (or neither)
 function setVideosOnly(on) {
   S.settings.videosOnly = on;
-  $('#opt-videos').checked = on;
+  if (on) S.settings.screenshotsOnly = false;
+  mediaChanged(on ? 'Videos only' : 'Photos and videos');
+}
+function setScreenshotsOnly(on) {
+  S.settings.screenshotsOnly = on;
+  if (on) S.settings.videosOnly = false;
+  mediaChanged(on ? 'Screenshots only' : 'Photos and videos');
+}
+function mediaChanged(msg) {
+  $('#opt-videos').checked = S.settings.videosOnly;
+  $('#opt-shots').checked = S.settings.screenshotsOnly;
   saveSettings();
   if (!$('#start').hidden) refreshStart();
-  else recluster(on ? 'Videos only' : 'Photos and videos');
+  else recluster(msg);
 }
 /* ------------------------------------------------------------ locations */
 
@@ -1603,6 +1619,8 @@ function render() {
         'empty',
         S.settings.videosOnly
           ? 'No videos here.\nPress V for photos too, or O for dates and filters.'
+          : S.settings.screenshotsOnly
+          ? 'No screenshots here.\nPress P for photos too, or O for dates and filters.'
           : S.settings.daily
           ? 'Nothing from this day in earlier years.\nPress T for all dates, or O for dates and filters.'
           : 'No clusters here.\nPress C to show single photos too, ] for a longer window, or O for dates and filters.'
@@ -1651,10 +1669,12 @@ function render() {
     frame.style.height = `${h}px`;
     frame.dataset.id = id;
     frame.onclick = () => {
+      if (DR.justDragged) return; // the end of a drag out, not a click
       S.focus = pos;
       updateFocusUi();
       openSolo();
     };
+    frame.dataset.pos = pos;
     // the caption sits right under its photo, whatever the photo's shape
     box.append(frame, caption(a, pos));
     if (L.cap > 26) box.append(geoLine(a, 'geo'));
@@ -1917,7 +1937,7 @@ function renderSoloCaption() {
   if (a.fav) cap.append(el('span', 'fav', '♥'));
   if (a.kind === 'video') cap.append(el('span', 'kind', `▶ ${fmtDur(a.dur)}`));
   const hint = el('span', 'hint');
-  hint.innerHTML = `${S.keep.has(id) ? 'kept' : d.has(id) ? 'to delete' : ''} &nbsp;<kbd>j</kbd><kbd>k</kbd> photos <kbd>↵</kbd> keep <kbd>D</kbd> delete <kbd>S</kbd> ♥ <kbd>Z</kbd> actual pixels <kbd>Space</kbd> back`;
+  hint.innerHTML = `${S.keep.has(id) ? 'kept' : d.has(id) ? 'to delete' : ''} &nbsp;<kbd>j</kbd><kbd>k</kbd> photos <kbd>↵</kbd> keep <kbd>D</kbd> delete <kbd>S</kbd> ♥ <kbd>E</kbd> share <kbd>Z</kbd> actual pixels <kbd>Space</kbd> back`;
   cap.append(hint);
 }
 
@@ -2280,6 +2300,85 @@ async function waitForLibrary() {
   }
 }
 
+/* ------------------------------------------------------------ share and drag out */
+
+/* A memory worth sending: E opens the system share sheet beside the photo
+   (Messages, Mail, AirDrop…), and a photo can be dragged out of the window as
+   a file. Both use the photo's own file from Photos (edits included, from
+   iCloud if need be). In a browser, E downloads the file instead. */
+function photoRect(id) {
+  const node = S.solo ? $('#solo-frame').firstElementChild : document.querySelector(`#stage .frame[data-id="${id}"]`);
+  const r = (node || $('#stage')).getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.bottom) };
+}
+
+// "Getting it ready…", only if it takes a moment (an iCloud download)
+function slowNote(msg) {
+  const t = setTimeout(() => toast(msg, { ms: 60000 }), 400);
+  return () => {
+    clearTimeout(t);
+    if ($('#toast').textContent === msg) $('#toast').hidden = true;
+  };
+}
+
+async function sharePhoto(id) {
+  if (!id) return;
+  const { x, y } = photoRect(id);
+  const done = slowNote('Getting the photo ready to share…');
+  const r = await api('POST', '/api/share', { id, x, y }).catch((e) => ({ error: e.message }));
+  done();
+  if (r.error) return toast(`Couldn't share it: ${r.error}`, { ms: 3500 });
+  if (r.download) {
+    // no share sheet in a browser: the file itself
+    const a = el('a');
+    a.href = r.download;
+    a.download = '';
+    document.body.append(a);
+    a.click();
+    a.remove();
+  }
+}
+
+// Drag out: past a few pixels with the button down, the app starts a real
+// drag of the photo's file (the page can't make one of its own pictures a file).
+const DR = { down: null, justDragged: false, toldBrowser: false };
+function bindDragOut() {
+  const start = (e, id) => {
+    if (e.button !== 0 || !id || e.target.closest('.key')) return;
+    DR.down = { x: e.clientX, y: e.clientY, id, started: false };
+  };
+  $('#stage').addEventListener('pointerdown', (e) => {
+    const f = e.target.closest('.frame');
+    start(e, f && f.dataset.id);
+  });
+  $('#solo-frame').addEventListener('pointerdown', (e) => {
+    if (S.solo && !S.solo.zoom && e.target.tagName !== 'VIDEO') start(e, $('#solo-frame').dataset.id);
+  });
+  document.addEventListener('pointermove', (e) => {
+    const d = DR.down;
+    if (!d || d.started || !(e.buttons & 1)) return;
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) return;
+    d.started = true;
+    DR.justDragged = true;
+    dragOut(d.id);
+  });
+  document.addEventListener('pointerup', () => {
+    DR.down = null;
+    setTimeout(() => (DR.justDragged = false), 0); // after this release's click
+  });
+}
+
+async function dragOut(id) {
+  const done = slowNote('Getting the photo ready…');
+  const r = await api('POST', '/api/drag', { id }).catch((e) => ({ error: e.message }));
+  done();
+  if (r.error) return toast(`Couldn't drag it out: ${r.error}`, { ms: 3500 });
+  if (r.unavailable && !DR.toldBrowser) {
+    DR.toldBrowser = true;
+    toast('Dragging a photo out works in the Mac app. Here, E saves it.', { ms: 3500 });
+  }
+}
+
 /* ------------------------------------------------------------ full screen */
 
 const inApp = () => S.server && S.server.shell === 'tauri';
@@ -2333,6 +2432,7 @@ const MENU = [
   ]],
   ['Look closely', [
     { id: 'large', label: 'Large view', key: 'Space', press: { key: ' ' }, when: inViewer, on: () => !!S.solo },
+    { id: 'share', label: 'Share photo…', key: 'E', press: { key: 'e' }, when: inViewer },
     { id: 'zoom', label: 'Actual pixels', key: 'Z', press: { key: 'z' }, when: () => !!S.solo, on: () => !!(S.solo && S.solo.zoom) },
     { id: 'fullscreen', label: 'Full screen', key: 'F', press: { key: 'f' }, on: () => isFullscreen() },
   ]],
@@ -2340,6 +2440,7 @@ const MENU = [
     { id: 'longer', label: 'Longer window', key: ']', press: { key: ']' }, when: () => authorized() && $('#review').hidden },
     { id: 'shorter', label: 'Shorter window', key: '[', press: { key: '[' }, when: () => authorized() && $('#review').hidden },
     { id: 'clustersonly', label: 'Clusters only', key: 'C', press: { key: 'c' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.clustersOnly },
+    { id: 'screenshotsonly', label: 'Screenshots only', key: 'P', press: { key: 'p' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.screenshotsOnly },
     { id: 'videosonly', label: 'Videos only', key: 'V', press: { key: 'v' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.videosOnly },
     { id: 'daily', label: 'Daily cleanup (on this day)', key: 'T', press: { key: 't' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.daily },
     { id: 'start', label: 'Dates and filters…', key: 'O', press: { key: 'o' }, when: inViewerAny },
@@ -2496,6 +2597,10 @@ function onKey(e) {
       setVideosOnly(!S.settings.videosOnly);
       return e.preventDefault();
     }
+    if (lower === 'p') {
+      setScreenshotsOnly(!S.settings.screenshotsOnly);
+      return e.preventDefault();
+    }
     if (lower === 't') {
       setDaily(!S.settings.daily);
       return e.preventDefault();
@@ -2574,6 +2679,9 @@ function onKey(e) {
     case 's':
       toggleFavorite();
       break;
+    case 'e':
+      if (c) sharePhoto(focusedId());
+      break;
     case ' ': {
       const v = $('#solo-frame video');
       if (v && S.solo && document.activeElement === v) break;
@@ -2611,6 +2719,7 @@ function onKey(e) {
 
 function bindUi() {
   bindStart();
+  bindDragOut();
   $('#auth-allow').onclick = () => allowAccess();
   $('#auth-open').onclick = () => api('POST', '/api/open', { what: 'privacy' }).catch(() => {});
   $('#filters-btn').onclick = () => showStart();
@@ -2646,7 +2755,7 @@ function bindUi() {
   // the large view: a click (or tap) goes back, a double-click zooms
   let tapTimer = 0;
   $('#solo-frame').addEventListener('click', (e) => {
-    if (e.target.tagName === 'VIDEO') return;
+    if (e.target.tagName === 'VIDEO' || DR.justDragged) return;
     if (S.solo && S.solo.zoom) return toggleZoom(e);
     clearTimeout(tapTimer);
     tapTimer = setTimeout(() => S.solo && !S.solo.zoom && closeSolo(), 260);

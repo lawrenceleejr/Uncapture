@@ -36,6 +36,8 @@ test.before(async () => {
     }
   });
   photos.push({ name: 'CLIP.MOV', t: T0 + 50 * DAY, extra: { duration: 7 } });
+  photos.push({ name: 'SHOT1.JPG', t: T0 + 60 * DAY, image: art[0][0], thumb: art[0][1], width: 960, height: 640, extra: { screenshot: true } });
+  photos.push({ name: 'SHOT2.JPG', t: T0 + 61 * DAY, image: art[1][0], thumb: art[1][1], width: 960, height: 640, extra: { screenshot: true } });
   writeLibrary(lib, photos, { places: { '35.96,-83.92': 'Knoxville, Tennessee' } });
   // daily cleanup "today" is the anniversary of the first cluster's day
   srv = startServer(lib, { env: { UNCAPTURE_TODAY: '2025-01-15' } });
@@ -73,7 +75,7 @@ test('start screen: window, filters, dates, open', async () => {
   await page.keyboard.press('c');
   await settle(page, 300);
   assert.equal(await page.$eval('#opt-clusters', (e) => e.checked), false);
-  assert.match(await text(page, '#big-n'), /^21 clusters · 61 photos$/);
+  assert.match(await text(page, '#big-n'), /^23 clusters · 63 photos$/);
   await page.keyboard.press('c');
   await settle(page, 300);
   // videos only (V): every video, even a single one
@@ -81,7 +83,13 @@ test('start screen: window, filters, dates, open', async () => {
   await settle(page, 300);
   assert.equal(await page.$eval('#opt-videos', (e) => e.checked), true);
   assert.match(await text(page, '#big-n'), /^1 video · 1 cluster$/);
-  await page.keyboard.press('v');
+  // screenshots only (P), instead of videos
+  await page.keyboard.press('p');
+  await settle(page, 300);
+  assert.equal(await page.$eval('#opt-videos', (e) => e.checked), false, 'one or the other');
+  assert.equal(await page.$eval('#opt-shots', (e) => e.checked), true);
+  assert.match(await text(page, '#big-n'), /^2 screenshots · 2 clusters$/);
+  await page.keyboard.press('p');
   await settle(page, 300);
   // daily cleanup (T): the calendar, on today (15 January); earlier years only
   await page.keyboard.press('t');
@@ -243,6 +251,22 @@ test('viewer: flip, keep, focus, clear, explicit marks, favorites', async () => 
   assert.equal(JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files['P002.JPG'].favorite, false);
   await page.keyboard.press('0');
 
+  // E: share. In a browser there's no share sheet: the photo's file downloads
+  await page.keyboard.press('Home');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('e')]);
+  assert.equal(dl.suggestedFilename(), 'P001.JPG');
+  // dragging a photo: not a click (the large view stays shut); the app's to do
+  const box = await page.$eval('#stage .frame', (f) => {
+    const r = f.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 40, box.y + 30, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForFunction(() => /works in the Mac app/.test(document.querySelector('#toast').textContent));
+  assert.equal(await page.$eval('#solo', (s) => s.hidden), true);
+
   // U: the next cluster without a keeper
   await page.keyboard.press('Home');
   await page.keyboard.press('1');
@@ -277,7 +301,7 @@ test('viewer: the window and filters re-cluster and keep your place', async () =
   await page.waitForFunction(() => S.settings.window === 60);
   // clusters only off: the single photo shows
   await page.keyboard.press('c');
-  await page.waitForFunction(() => S.clusters.length === 21);
+  await page.waitForFunction(() => S.clusters.length === 23);
   await page.keyboard.press('c');
   await page.waitForFunction(() => S.clusters.length === 16);
   // daily cleanup from the viewer (T): the header names the years
@@ -369,7 +393,7 @@ test('every Mac menu bar item is a Menu command, and every command runs', async 
   const groups = await page.evaluate(() => MENU.map(([t]) => t.toLowerCase()));
   for (const g of groups) assert.ok(gui.toLowerCase().includes(`"${g}"`), `menu bar group ${g}`);
   // run each from the Menu, as the menu bar does
-  for (const id of ['next', 'prev', 'next10', 'prev10', 'last', 'first', 'nextphoto', 'prevphoto', 'focus', 'keep', 'keepall', 'clear', 'mark', 'clear', 'nextopen', 'large', 'zoom', 'large', 'longer', 'shorter', 'clustersonly', 'clustersonly', 'videosonly', 'videosonly', 'review', 'review', 'keys']) {
+  for (const id of ['next', 'prev', 'next10', 'prev10', 'last', 'first', 'nextphoto', 'prevphoto', 'focus', 'keep', 'keepall', 'clear', 'mark', 'clear', 'nextopen', 'large', 'zoom', 'large', 'longer', 'shorter', 'clustersonly', 'clustersonly', 'videosonly', 'videosonly', 'screenshotsonly', 'screenshotsonly', 'review', 'review', 'keys']) {
     await page.evaluate((id) => window.uncaptureCommand(id), id);
     await settle(page, 60);
   }

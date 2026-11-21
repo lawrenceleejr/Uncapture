@@ -28,13 +28,14 @@ pub struct Settings {
     /// iCloud Shared Library photos (off: deleting one removes it for everyone)
     pub include_shared: bool,
     pub videos_only: bool,
+    pub screenshots_only: bool,
     /// date range, "YYYY-MM-DD", inclusive
     pub from: Option<String>,
     pub to: Option<String>,
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { window: cluster::DEFAULT_WINDOW, clusters_only: true, daily: false, include_shared: false, videos_only: false, from: None, to: None }
+        Settings { window: cluster::DEFAULT_WINDOW, clusters_only: true, daily: false, include_shared: false, videos_only: false, screenshots_only: false, from: None, to: None }
     }
 }
 
@@ -249,6 +250,34 @@ impl App {
         });
     }
 
+    /// The photo's own file, for sharing or dragging out: written once into
+    /// Application Support/Uncapture/share/<id>/ (the newest 40 kept).
+    fn exported(self: &Arc<Self>, id: &str) -> Option<PathBuf> {
+        let dir = data_dir().join("share").join(id);
+        if let Some(f) = fs::read_dir(&dir).ok().and_then(|rd| rd.flatten().map(|e| e.path()).find(|p| !p.to_string_lossy().contains(".partial"))) {
+            return Some(f);
+        }
+        let _ = fs::create_dir_all(&dir);
+        let pid = id.to_string();
+        let prog = self.progress_for(&pid);
+        let out = self.src.export_original(&id.to_string(), &dir, prog);
+        self.progress.lock().unwrap().remove(&pid);
+        if out.is_none() {
+            let _ = fs::remove_dir_all(&dir);
+        }
+        prune_dirs(&data_dir().join("share"), 40);
+        out
+    }
+
+    fn progress_for(self: &Arc<Self>, id: &str) -> Progress {
+        self.progress.lock().unwrap().insert(id.to_string(), 0.0);
+        let app = self.clone();
+        let key = id.to_string();
+        Arc::new(move |p| {
+            app.progress.lock().unwrap().insert(key.clone(), p);
+        })
+    }
+
     /// A new list of photos to make sharp copies of (it replaces the last).
     fn start_sharp(self: &Arc<Self>, ids: Vec<String>) -> Value {
         let wanted: Vec<String> = {
@@ -398,6 +427,19 @@ fn send_json(req: Request, code: u16, body: Value) {
 
 fn err(req: Request, code: u16, msg: &str) {
     send_json(req, code, json!({ "error": msg }));
+}
+
+// keep the newest few folders in `dir`
+fn prune_dirs(dir: &Path, keep: usize) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    let mut ds: Vec<(std::time::SystemTime, PathBuf)> = rd.flatten().filter(|e| e.path().is_dir()).filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
+    if ds.len() <= keep {
+        return;
+    }
+    ds.sort();
+    for (_, d) in &ds[..ds.len() - keep] {
+        let _ = fs::remove_dir_all(d);
+    }
 }
 
 // keep the newest sharp copies only
@@ -604,6 +646,7 @@ fn filter_from(params: &HashMap<String, String>, st: &Settings) -> Filter {
         window,
         clusters_only: params.get("clustersOnly").map(|v| v == "1").unwrap_or(st.clusters_only),
         videos_only: params.get("videosOnly").map(|v| v == "1").unwrap_or(st.videos_only),
+        screenshots_only: params.get("screenshotsOnly").map(|v| v == "1").unwrap_or(st.screenshots_only),
         on_this_day: daily.then_some(day),
         from: params.get("from").and_then(|s| parse_day(s)),
         to: params.get("to").and_then(|s| parse_day(s)),
@@ -665,6 +708,36 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
             app.progress.lock().unwrap().remove(&id);
             return match file {
                 Some(f) => serve_video(req, &f),
+                None => err(req, 404, "not available"),
+            };
+        }
+        if let Some(id) = path.strip_prefix("/api/original/") {
+            // the photo's own file, to save (the browser's stand-in for Share)
+            let id = id.to_string();
+            if !app.lib.read().unwrap().by_id.contains_key(&id) {
+                return err(req, 404, "not found");
+            }
+            return match app.exported(&id) {
+                Some(f) => {
+                    let name = f.file_name().map(|n| n.to_string_lossy().replace('"', "")).unwrap_or_default();
+                    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+                    let mime = match ext.as_str() {
+                        "jpg" | "jpeg" => "image/jpeg",
+                        "heic" => "image/heic",
+                        "png" => "image/png",
+                        "mov" => "video/quicktime",
+                        "mp4" | "m4v" => "video/mp4",
+                        _ => "application/octet-stream",
+                    };
+                    match File::open(&f) {
+                        Ok(file) => {
+                            let len = file.metadata().map(|m| m.len() as usize).ok();
+                            let headers = vec![header("Content-Type", mime), header("Content-Disposition", &format!("attachment; filename=\"{}\"", name))];
+                            let _ = req.respond(Response::new(StatusCode(200), headers, file, len, None));
+                        }
+                        Err(_) => err(req, 404, "not available"),
+                    }
+                }
                 None => err(req, 404, "not available"),
             };
         }
@@ -900,6 +973,34 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 write_atomic(&file, &serde_json::to_vec(&cache).unwrap_or_default());
             }
             send_json(req, 200, json!({ "place": place }))
+        }
+        ("/api/share", _, true, _) | ("/api/drag", _, true, _) => {
+            // Share: the system share sheet beside the photo. Drag: the photo's
+            // file dragged out of the window. Both need the app window; in a
+            // browser, Share is a download and drag isn't offered.
+            let body = read_json(&mut req);
+            let id = body["id"].as_str().unwrap_or("").to_string();
+            if !app.lib.read().unwrap().by_id.contains_key(&id) {
+                return err(req, 404, "not found");
+            }
+            let share = path == "/api/share";
+            let Some(win) = app.window.get() else {
+                return send_json(req, 200, if share { json!({ "download": format!("/api/original/{}", id) }) } else { json!({ "unavailable": true }) });
+            };
+            let Some(file) = app.exported(&id) else { return err(req, 404, "Photos couldn't give this one's file") };
+            let mut cmd = json!({ "path": file.to_string_lossy(), "x": body["x"], "y": body["y"] });
+            if !share {
+                // the picture under the cursor while dragging: the thumbnail
+                let thumb = data_dir().join("share").join(format!("{}.drag.jpg", id));
+                if !thumb.exists() {
+                    if let Some(t) = app.src.thumbnail(&id, 256) {
+                        let _ = fs::write(&thumb, t);
+                    }
+                }
+                cmd["icon"] = json!(thumb.to_string_lossy());
+            }
+            let out = win(if share { "share" } else { "drag" }, &cmd);
+            send_json(req, 200, out)
         }
         ("/api/sharp", _, true, _) => {
             let body = read_json(&mut req);

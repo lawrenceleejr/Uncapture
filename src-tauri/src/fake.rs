@@ -282,6 +282,14 @@ impl PhotoSource for FakeSource {
         Some(file)
     }
 
+    fn export_original(&self, id: &AssetId, dir: &Path, progress: Progress) -> Option<PathBuf> {
+        let file = self.files.read().unwrap().get(id).map(|e| e.file.clone())?;
+        simulate_download(&*progress);
+        let out = dir.join(file.file_name()?);
+        fs::copy(&file, &out).ok()?;
+        Some(out)
+    }
+
     fn delete(&self, ids: &[AssetId]) -> DeleteOutcome {
         let mut out = DeleteOutcome::default();
         if self.dir.join(".cancel-delete").exists() {

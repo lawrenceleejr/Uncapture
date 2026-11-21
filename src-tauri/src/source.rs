@@ -97,6 +97,9 @@ pub trait PhotoSource: Send + Sync {
     fn image(&self, id: &AssetId, px: Option<u32>, progress: Progress) -> Option<Vec<u8>>;
     /// a playable file for a video (may download from iCloud)
     fn video_file(&self, id: &AssetId, progress: Progress) -> Option<std::path::PathBuf>;
+    /// the photo's own file (edits included), with its original name, written
+    /// into `dir`: for sharing or dragging out. May download from iCloud.
+    fn export_original(&self, id: &AssetId, dir: &std::path::Path, progress: Progress) -> Option<std::path::PathBuf>;
     /// moves the assets to Recently Deleted, after macOS's own confirmation
     fn delete(&self, ids: &[AssetId]) -> DeleteOutcome;
     /// called whenever the library changes (sync, edits, deletions elsewhere)

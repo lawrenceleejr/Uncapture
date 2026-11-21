@@ -21,6 +21,8 @@ pub struct Filter {
     pub on_this_day: Option<Ymd>,
     /// videos only (every video: "clusters only" doesn't apply)
     pub videos_only: bool,
+    /// screenshots only (every screenshot, as for videos)
+    pub screenshots_only: bool,
     /// date range, local days, inclusive (ignored in daily cleanup)
     pub from: Option<Ymd>,
     pub to: Option<Ymd>,
@@ -120,6 +122,9 @@ pub fn build(assets: &[Asset], f: &Filter, offset_min: &dyn Fn(i64) -> i32) -> V
     if f.videos_only {
         order.retain(|&i| assets[i].kind == crate::source::Kind::Video);
     }
+    if f.screenshots_only {
+        order.retain(|&i| assets[i].subtypes & crate::source::SCREENSHOT != 0);
+    }
     let mut cs = cluster(assets, &order, f.window.max(1));
     if f.on_this_day.is_none() && (f.from.is_some() || f.to.is_some()) {
         // a cluster belongs to the day it starts on
@@ -128,7 +133,7 @@ pub fn build(assets: &[Asset], f: &Filter, offset_min: &dyn Fn(i64) -> i32) -> V
             f.from.map_or(true, |a| d >= a) && f.to.map_or(true, |b| d <= b)
         });
     }
-    if f.clusters_only && !f.videos_only {
+    if f.clusters_only && !f.videos_only && !f.screenshots_only {
         cs.retain(|c| c.len() > 1);
     }
     cs
@@ -238,6 +243,16 @@ mod tests {
         a[3].kind = Kind::Video;
         let flt = Filter { window: 60, clusters_only: true, videos_only: true, ..Default::default() };
         assert_eq!(build(&a, &flt, &utc), vec![vec![1], vec![3]], "single videos too");
+    }
+
+    #[test]
+    fn screenshots_only_shows_every_screenshot() {
+        let mut a = vec![asset("a", T0), asset("s1", T0 + 1000), asset("s2", T0 + 3000), asset("s3", T0 + 10 * MIN)];
+        for i in 1..4 {
+            a[i].subtypes = crate::source::SCREENSHOT;
+        }
+        let flt = Filter { window: 60, clusters_only: true, screenshots_only: true, ..Default::default() };
+        assert_eq!(build(&a, &flt, &utc), vec![vec![1, 2], vec![3]], "together when close, singles too");
     }
 
     #[test]

@@ -53,6 +53,9 @@ function library(dir) {
   add('JUNE2.JPG', Date.UTC(2023, 5, 2, 8, 0, 0));
   add('THISYEAR.JPG', Date.UTC(2025, 5, 1, 8, 0, 0));
   add('SOUTH.JPG', Date.UTC(2023, 0, 9, 8, 0, 0), undefined, 0, [-33.8568, 151.2153]);
+  add('SHOT1.PNG.JPG', Date.UTC(2023, 8, 10, 9, 0, 0), { screenshot: true });
+  add('SHOT2.PNG.JPG', Date.UTC(2023, 8, 10, 9, 0, 20), { screenshot: true });
+  add('SHOT3.PNG.JPG', Date.UTC(2023, 8, 11, 9, 0, 0), { screenshot: true });
   writeLibrary(dir, p, { places: { '35.96,-83.92': 'Knoxville, Tennessee' } });
 }
 
@@ -122,7 +125,7 @@ test('assets: sorted by time, stable ids, hidden and shared left out', async () 
   assert.ok(ids.every((id) => /^[0-9a-f]{16}$/.test(id)));
   assert.ok(!ids.includes(idOf('HIDDEN.JPG')), 'hidden photos never show');
   assert.ok(!ids.includes(idOf('SHARED.JPG')), 'Shared Library photos are left out by default');
-  assert.equal(ids.length, 21);
+  assert.equal(ids.length, 24);
   const times = ASSETS.map((a) => a[1]);
   assert.deepEqual(times, [...times].sort((a, b) => a - b));
   const a1 = ASSETS.find((a) => a[0] === idOf('A1.JPG'));
@@ -154,6 +157,26 @@ test('locations: from EXIF GPS, and place names asked once per spot', async () =
 test('library: videos only shows every video, alone or not', async () => {
   const v = (await api('GET', '/api/library?videosOnly=1&clustersOnly=1')).data;
   assert.deepEqual(clusterNames(v), [['F1.MOV']]);
+});
+
+test('library: screenshots only shows every screenshot, alone or not', async () => {
+  const v = (await api('GET', '/api/library?screenshotsOnly=1&clustersOnly=1')).data;
+  assert.deepEqual(clusterNames(v), [['SHOT1.PNG.JPG', 'SHOT2.PNG.JPG'], ['SHOT3.PNG.JPG']]);
+  assert.equal(ASSETS.find((a) => a[0] === idOf('SHOT1.PNG.JPG'))[7] & 2, 2, 'the screenshot flag');
+});
+
+test('a photo\'s own file: to save, and (in a browser) Share and drag answer so', async () => {
+  const f = await fetch(`${base}/api/original/${idOf('B1.JPG')}`);
+  assert.equal(f.status, 200);
+  assert.equal(f.headers.get('content-disposition'), 'attachment; filename="B1.JPG"');
+  assert.deepEqual(Buffer.from(await f.arrayBuffer()), fs.readFileSync(path.join(lib, 'B1.JPG')));
+  assert.ok(fs.existsSync(path.join(tmp, 'home', '.uncapture', 'share', idOf('B1.JPG'), 'B1.JPG')), 'written once, kept for a drag or share');
+  assert.equal((await fetch(`${base}/api/original/0000000000000000`)).status, 404);
+  // no app window here: Share is a download, drag isn't offered
+  assert.deepEqual((await api('POST', '/api/share', { id: idOf('B1.JPG'), x: 10, y: 10 })).data, { download: `/api/original/${idOf('B1.JPG')}` });
+  assert.deepEqual((await api('POST', '/api/drag', { id: idOf('B1.JPG') })).data, { unavailable: true });
+  assert.equal((await api('POST', '/api/share', { id: 'nope' })).status, 404);
+  assert.equal((await fetch(base + '/api/share', { method: 'POST', body: '{}' })).status, 403, 'its own page only');
 });
 
 test('library: clusters at 60 s, singles hidden by "clusters only"', async () => {
@@ -337,7 +360,7 @@ test('delete: exactly the marked photos go, and only what is still marked', asyn
   // the library is read again without them; the keeper's mark stays
   for (let i = 0; i < 50; i++) {
     const st = (await api('GET', '/api/state')).data;
-    if (!st.library.loading && st.library.count === 18) break;
+    if (!st.library.loading && st.library.count === ASSETS.length - 2) break;
     await new Promise((res) => setTimeout(res, 100));
   }
   const ids = (await api('GET', '/api/assets')).data.assets.map((a) => a[0]);

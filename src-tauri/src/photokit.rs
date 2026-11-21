@@ -211,6 +211,44 @@ fn asset_of(a: &PHAsset) -> Option<Asset> {
     }
 }
 
+/// The first of these kinds of file the asset has.
+fn resource_of(a: &PHAsset, kinds: &[PHAssetResourceType]) -> Option<Retained<PHAssetResource>> {
+    let resources = unsafe { PHAssetResource::assetResourcesForAsset(a) };
+    kinds.iter().find_map(|&t| resources.iter().find(|r| unsafe { r.r#type() } == t))
+}
+
+/// One of an asset's files, written to `dest` (from iCloud if need be).
+fn write_resource(res: &PHAssetResource, dest: &std::path::Path, progress: Progress) -> bool {
+    let tmp = dest.with_extension(format!("partial.{}", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    let opts = unsafe { PHAssetResourceRequestOptions::new() };
+    let p = progress.clone();
+    let prog = RcBlock::new(move |v: f64| p(v.clamp(0.0, 1.0)));
+    unsafe {
+        opts.setNetworkAccessAllowed(true);
+        opts.setProgressHandler(RcBlock::as_ptr(&prog));
+    }
+    let (tx, rx) = mpsc::channel();
+    let tx = Mutex::new(Some(tx));
+    let done = RcBlock::new(move |e: *mut NSError| {
+        if let Some(t) = tx.lock().unwrap().take() {
+            let _ = t.send(e.is_null());
+        }
+    });
+    let url = NSURL::fileURLWithPath(&NSString::from_str(&tmp.to_string_lossy()));
+    unsafe {
+        PHAssetResourceManager::defaultManager().writeDataForAssetResource_toFile_options_completionHandler(res, &url, Some(&opts), &done);
+    }
+    let ok = rx.recv_timeout(Duration::from_secs(30 * 60)).unwrap_or(false);
+    if ok && std::fs::rename(&tmp, dest).is_ok() {
+        progress(1.0);
+        true
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+        false
+    }
+}
+
 /// Sum of a photo's files (original, edits, Live Photo video) from the
 /// undocumented `fileSize` key; None if that key isn't there.
 fn file_size(a: &PHAsset) -> Option<u64> {
@@ -333,9 +371,7 @@ impl PhotoSource for PhotoKitSource {
 
     fn video_file(&self, id: &AssetId, progress: Progress) -> Option<PathBuf> {
         let a = self.one(id)?;
-        let resources = unsafe { PHAssetResource::assetResourcesForAsset(&a) };
-        let pick = |t: PHAssetResourceType| resources.iter().find(|r| unsafe { r.r#type() } == t);
-        let res = pick(PHAssetResourceType::FullSizeVideo).or_else(|| pick(PHAssetResourceType::Video))?;
+        let res = resource_of(&a, &[PHAssetResourceType::FullSizeVideo, PHAssetResourceType::Video])?;
         let name = unsafe { res.originalFilename() }.to_string();
         let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_else(|| "mov".into());
         let dir = crate::server::data_dir().join("videos");
@@ -344,34 +380,21 @@ impl PhotoSource for PhotoKitSource {
         if file.exists() {
             return Some(file);
         }
-        let tmp = dir.join(format!("{}.{}.partial.{}", id, std::process::id(), ext));
-        let _ = std::fs::remove_file(&tmp);
-        let opts = unsafe { PHAssetResourceRequestOptions::new() };
-        let p = progress.clone();
-        let prog = RcBlock::new(move |v: f64| p(v.clamp(0.0, 1.0)));
-        unsafe {
-            opts.setNetworkAccessAllowed(true);
-            opts.setProgressHandler(RcBlock::as_ptr(&prog));
-        }
-        let (tx, rx) = mpsc::channel();
-        let tx = Mutex::new(Some(tx));
-        let done = RcBlock::new(move |e: *mut NSError| {
-            if let Some(t) = tx.lock().unwrap().take() {
-                let _ = t.send(e.is_null());
-            }
-        });
-        let url = NSURL::fileURLWithPath(&NSString::from_str(&tmp.to_string_lossy()));
-        unsafe {
-            PHAssetResourceManager::defaultManager().writeDataForAssetResource_toFile_options_completionHandler(&res, &url, Some(&opts), &done);
-        }
-        let ok = rx.recv_timeout(Duration::from_secs(30 * 60)).unwrap_or(false);
-        if ok && std::fs::rename(&tmp, &file).is_ok() {
-            progress(1.0);
-            Some(file)
+        write_resource(&res, &file, progress).then_some(file)
+    }
+
+    fn export_original(&self, id: &AssetId, dir: &std::path::Path, progress: Progress) -> Option<PathBuf> {
+        let a = self.one(id)?;
+        // the edited version where there is one, as Photos would share it
+        let kinds: &[PHAssetResourceType] = if unsafe { a.mediaType() } == PHAssetMediaType::Video {
+            &[PHAssetResourceType::FullSizeVideo, PHAssetResourceType::Video]
         } else {
-            let _ = std::fs::remove_file(&tmp);
-            None
-        }
+            &[PHAssetResourceType::FullSizePhoto, PHAssetResourceType::Photo]
+        };
+        let res = resource_of(&a, kinds)?;
+        let name = unsafe { res.originalFilename() }.to_string().replace('/', "_");
+        let file = dir.join(if name.is_empty() { format!("{}.jpg", id) } else { name });
+        write_resource(&res, &file, progress).then_some(file)
     }
 
     fn delete(&self, ids: &[AssetId]) -> DeleteOutcome {
