@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uncapture</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="bar">
+    <div class="left">
+      <span class="mark">Uncapture</span>
+      <span id="where" class="muted"></span>
+    </div>
+    <div class="center"><span id="counter"></span></div>
+    <div class="right">
+      <button id="filters-btn" class="link" title="Dates and filters (O)">Dates &amp; filters <kbd>O</kbd></button>
+      <button id="review-btn" class="link" title="Review what will be deleted (R)">Review <span id="review-count" class="num">0</span> <kbd>R</kbd></button>
+      <button id="fs-btn" class="link" title="Full screen (F)">Full screen <kbd>F</kbd></button>
+      <button id="menu-btn" class="link" title="All actions (M)">Menu <kbd>M</kbd></button>
+      <button id="help-btn" class="link" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">Keys <kbd>?</kbd></button>
+    </div>
+  </header>
+
+  <!-- access to the Photos library -->
+  <main id="auth" hidden>
+    <div class="auth-inner">
+      <h1>Uncapture</h1>
+      <p class="lede">Photos taken close together, side by side. Keep the best; the rest are deleted from Photos.</p>
+      <div id="auth-ask" hidden>
+        <p>Uncapture needs to see your Photos library. It runs only on this Mac and uploads nothing.</p>
+        <button id="auth-allow" class="btn primary">Allow access to Photos <kbd>↵</kbd></button>
+      </div>
+      <div id="auth-denied" hidden>
+        <p id="auth-denied-text">Uncapture isn't allowed to see your photos. Turn it on in System Settings → Privacy &amp; Security → Photos, then come back here.</p>
+        <button id="auth-open" class="btn primary">Open Privacy Settings <kbd>↵</kbd></button>
+      </div>
+      <p class="muted small">macOS asks again after each update of Uncapture: the permission belongs to the app's signature, and an update has a new one.</p>
+      <div id="auth-status" class="muted"></div>
+    </div>
+  </main>
+
+  <!-- start: what to look at -->
+  <main id="start" hidden>
+    <div class="start-inner">
+      <div class="start-head">
+        <h1>Uncapture</h1>
+        <span class="start-head-actions"><button id="start-return" class="link" title="Back to the clusters (Esc)" hidden>Back to the clusters <kbd>Esc</kbd></button></span>
+      </div>
+      <p class="lede">Photos taken close together, side by side. Keep the best; the rest are deleted from Photos.</p>
+      <p class="keyline"><kbd>←</kbd><kbd>→</kbd> flip <kbd>1</kbd>–<kbd>9</kbd> keep <kbd>Space</kbd> look closely <kbd>R</kbd> review <kbd>?</kbd> every key</p>
+
+      <div class="start-row" id="chart-row">
+        <div class="start-label">
+          <span id="chart-title">Photos per month</span> <span class="muted">— drag, or <kbd>←</kbd><kbd>→</kbd>, <kbd>⇧</kbd> to widen</span>
+          <span id="quick" class="quick"><button data-q="all">All <kbd>A</kbd></button><button data-q="year">Last 12 months <kbd>Y</kbd></button><button data-q="month">Last 30 days <kbd>L</kbd></button></span>
+        </div>
+        <svg id="chart" preserveAspectRatio="none"></svg>
+      </div>
+
+      <div class="start-row">
+        <div class="start-label">Cluster window <span class="muted">— photos this close together are one cluster <kbd>[</kbd><kbd>]</kbd></span></div>
+        <div id="windows" class="steps"></div>
+      </div>
+
+      <div class="start-row options">
+        <label class="opt" title="Hide photos that have no others near them (C)"><input type="checkbox" id="opt-clusters"> Clusters only <kbd>C</kbd></label>
+        <label class="opt" title="Only photos taken on this day in earlier years (D)"><input type="checkbox" id="opt-daily"> Daily cleanup: on this day in earlier years <kbd>D</kbd></label>
+        <span id="daily-status" class="muted"></span>
+      </div>
+
+      <div class="start-foot">
+        <div class="big"><span id="big-n" class="num"></span><span id="big-sub" class="muted"></span></div>
+        <span id="start-status" class="muted"></span>
+        <button id="start-review" class="link" title="Review what will be deleted (R)">Review <span class="num" id="start-review-n">0</span> <kbd>R</kbd></button>
+        <button id="start-open" class="btn primary">Open <kbd>↵</kbd></button>
+      </div>
+    </div>
+  </main>
+
+  <!-- the cluster viewer -->
+  <main id="viewer" hidden>
+    <section id="stage"></section>
+    <footer id="index">
+      <div id="index-meta">
+        <span id="c-date"></span><span id="c-n" class="muted"></span>
+        <span id="c-window" class="muted"></span>
+        <span id="c-del" class="muted"></span>
+      </div>
+      <canvas id="ticks"></canvas>
+      <div id="peek" hidden><div class="peek-img"></div><div class="peek-cap"></div></div>
+    </footer>
+  </main>
+
+  <!-- one photo, large -->
+  <section id="solo" hidden>
+    <div id="dl"><div></div></div>
+    <div id="solo-frame"></div>
+    <div id="solo-note" class="muted" hidden></div>
+    <div id="solo-caption" class="caption"></div>
+  </section>
+
+  <!-- review and delete -->
+  <section id="review" hidden>
+    <div class="review-head">
+      <div>
+        <h2 id="review-title"></h2>
+        <div id="review-sub" class="muted"></div>
+      </div>
+      <div class="review-actions">
+        <button id="open-photos" class="link" title="Open the Photos app">Open Photos</button>
+        <button id="delete-btn" class="btn primary">Delete from Photos… <kbd>↵</kbd></button>
+        <button id="review-close" class="link close" title="Close (Esc or R)" aria-label="Close review">×</button>
+      </div>
+    </div>
+    <div id="review-result" class="muted"></div>
+    <div id="review-scroll"><div id="review-grid"></div></div>
+  </section>
+
+  <!-- shown once, before the first delete -->
+  <section id="first" hidden>
+    <div class="first-inner">
+      <h2>Before the first delete</h2>
+      <p>macOS will ask you to confirm. Nothing is deleted until you do.</p>
+      <p>Deleted photos go to <b>Recently Deleted</b> in Photos for 30 days, on every device on your iCloud account. No app can empty it: to free the iCloud space now, empty it in Photos.</p>
+      <p>Live Photos and RAW+JPEG pairs go as a whole, with their edits.</p>
+      <div class="first-actions">
+        <button id="first-cancel" class="btn quiet">Cancel <kbd>Esc</kbd></button>
+        <button id="first-go" class="btn primary">Continue <kbd>↵</kbd></button>
+      </div>
+    </div>
+  </section>
+
+  <section id="help" hidden><div class="help-inner"><h2>Everything has a key</h2><p class="help-lede">Uncapture is made to be used without the mouse. Every button shows its key; this is the full list.</p><div id="help-cols" class="help-cols"></div></div></section>
+  <div id="menu" hidden></div>
+  <div id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

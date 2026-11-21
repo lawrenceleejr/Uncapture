@@ -1,0 +1,25 @@
+{
+  "name": "uncapture",
+  "productName": "Uncapture",
+  "version": "0.1.0",
+  "description": "Clean up the Photos library on a Mac: photos taken close together side by side; keep the best, delete the rest.",
+  "license": "MIT",
+  "author": "Lawrence Lee",
+  "repository": "github:lawrenceleejr/uncapture",
+  "scripts": {
+    "build:cli": "cargo build --release --no-default-features --manifest-path src-tauri/Cargo.toml",
+    "start": "cargo run --release --no-default-features --manifest-path src-tauri/Cargo.toml -- --serve",
+    "demo": "node scripts/demo-library.js build/demo && cargo run --release --no-default-features --manifest-path src-tauri/Cargo.toml -- --serve --fake build/demo",
+    "app": "tauri dev",
+    "dist": "tauri build",
+    "tauri": "tauri",
+    "test:rust": "cargo test --no-default-features --manifest-path src-tauri/Cargo.toml",
+    "test": "node --test test/*.test.js",
+    "test:ui": "node --test --test-concurrency=1 test/ui/*.test.js"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4",
+    "playwright": "^1.63.0"
+  },
+  "private": true
+}
