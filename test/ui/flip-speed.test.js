@@ -177,16 +177,12 @@ test('j held down through photos and clusters: every step paints within 50 ms', 
   await page.close();
 });
 
-test('locations shown (G): arrow presses paint within 50 ms', async () => {
+test('locations shown: arrow presses paint within 50 ms', async () => {
   const { page, errors } = await openViewer({ settle: 1500 });
-  await page.keyboard.press('g');
-  await page.waitForTimeout(1500);
   await page.evaluate(() => (window.__keyDurations = []));
   const r = await flip(page, { presses: 25, gapMs: 120 });
   assertFast('locations shown', r);
   assert.ok(await page.evaluate(() => document.querySelectorAll('#stage .geo').length > 0));
-  await page.keyboard.press('g');
-  await page.waitForTimeout(400);
   assert.deepEqual(errors, []);
   await page.close();
 });

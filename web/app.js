@@ -38,7 +38,7 @@ const S = {
   focus: 0, // position of the focused photo in the cluster
   keep: new Set(),
   del: new Set(),
-  settings: { window: 60, clustersOnly: true, daily: false, videosOnly: false, geo: false, from: null, to: null },
+  settings: { window: 60, clustersOnly: true, daily: false, videosOnly: false, from: null, to: null },
   toDelete: 0,
   solo: null, // {zoom}
   dailyDay: null, // the day of the year for daily cleanup, "MM-DD" (today by default)
@@ -221,7 +221,6 @@ function showStart() {
   $('#opt-clusters').checked = S.settings.clustersOnly;
   $('#opt-daily').checked = S.settings.daily;
   $('#opt-videos').checked = S.settings.videosOnly;
-  $('#opt-geo').checked = S.settings.geo;
   renderDaily();
   renderSaved();
   ST.bins = chartBins();
@@ -538,7 +537,6 @@ function bindStart() {
   $('#opt-clusters').onchange = (e) => setClustersOnly(e.target.checked);
   $('#opt-daily').onchange = (e) => setDaily(e.target.checked);
   $('#opt-videos').onchange = (e) => setVideosOnly(e.target.checked);
-  $('#opt-geo').onchange = (e) => setGeo(e.target.checked);
   $('#start-open').onclick = () => openViewer();
   $('#start-review').onclick = () => openReview();
   $('#start-return').onclick = () => backToViewer();
@@ -575,17 +573,6 @@ function setVideosOnly(on) {
   if (!$('#start').hidden) refreshStart();
   else recluster(on ? 'Videos only' : 'Photos and videos');
 }
-function setGeo(on) {
-  S.settings.geo = on;
-  $('#opt-geo').checked = on;
-  saveSettings();
-  layoutCache = null;
-  TL.version++;
-  if (!$('#viewer').hidden) render();
-  if (S.solo) renderSoloCaption();
-  if (!$('#start').hidden || !$('#viewer').hidden) toast(on ? 'Locations shown' : 'Locations hidden');
-}
-
 /* ------------------------------------------------------------ locations */
 
 // "35.96° N  83.92° W", and the place name once known: Apple's reverse
@@ -1278,9 +1265,10 @@ let dispQueue = [];
 let dispScheduled = false;
 
 let layoutCache = null;
-// a caption line under each photo; a second one with its location when shown
-let CAP = 26;
-const capHeight = () => (CAP = S.settings.geo ? 44 : 26);
+// a caption line under each photo; a second one, with where it was taken,
+// in clusters that have a geotag
+const hasGeo = (c) => c.some((id) => S.byId.get(id)?.lat != null);
+const capOf = (c) => (hasGeo(c) ? 44 : 26);
 function stageSize() {
   if (!layoutCache) {
     const st = $('#stage');
@@ -1294,7 +1282,7 @@ const aspectOf = (a) => (a && a.w && a.h ? a.w / a.h : 1.5);
    shows them biggest: a row, 2 + 1, a near-square grid); more than 9 scroll
    in rows of fixed tiles with the focused photo kept in view. */
 function layoutFor(c) {
-  capHeight();
+  const CAP = capOf(c);
   const { W, H } = stageSize();
   const gap = 10;
   const n = c.length;
@@ -1311,11 +1299,11 @@ function layoutFor(c) {
       if (!best || w > best.w * 1.02) best = { cols, w, cellW, cellH };
     }
     const tileW = Math.floor(best.w);
-    return { cols: best.cols, tileW, boxH: Math.floor(Math.min(best.cellH, tileW / tall)), scroll: false };
+    return { cols: best.cols, tileW, boxH: Math.floor(Math.min(best.cellH, tileW / tall)), scroll: false, cap: CAP };
   }
   const cols = clamp(Math.floor((W + gap) / (230 + gap)), 4, 8);
   const tileW = Math.floor((W - (cols - 1) * gap) / cols);
-  return { cols, tileW, boxH: Math.floor(Math.min(tileW / tall, H * 0.6)), scroll: true };
+  return { cols, tileW, boxH: Math.floor(Math.min(tileW / tall, H * 0.6)), scroll: true, cap: CAP };
 }
 
 function frameSize(a, L) {
@@ -1657,7 +1645,7 @@ function render() {
     if (d.has(id)) look.classList.add('del');
     if (pos === S.focus) look.classList.add('focus');
     const box = el('div', 'box');
-    box.style.height = `${L.boxH + CAP}px`;
+    box.style.height = `${L.boxH + L.cap}px`;
     const frame = el('div', 'frame');
     frame.style.width = `${w}px`;
     frame.style.height = `${h}px`;
@@ -1669,7 +1657,7 @@ function render() {
     };
     // the caption sits right under its photo, whatever the photo's shape
     box.append(frame, caption(a, pos));
-    if (S.settings.geo) box.append(geoLine(a, 'geo'));
+    if (L.cap > 26) box.append(geoLine(a, 'geo'));
     look.append(box);
     stage.append(look);
     let shownW = 0; // the width of the source on screen (0: a thumbnail or nothing)
@@ -1925,7 +1913,7 @@ function renderSoloCaption() {
     cap.append(keys);
   }
   cap.append(el('span', 'time', `${fmtDay(a)}  ${fmtTime(a)}`));
-  if (S.settings.geo && a.lat != null) cap.append(geoLine(a, 'place'));
+  if (a.lat != null) cap.append(geoLine(a, 'place'));
   if (a.fav) cap.append(el('span', 'fav', '♥'));
   if (a.kind === 'video') cap.append(el('span', 'kind', `▶ ${fmtDur(a.dur)}`));
   const hint = el('span', 'hint');
@@ -2345,7 +2333,6 @@ const MENU = [
   ]],
   ['Look closely', [
     { id: 'large', label: 'Large view', key: 'Space', press: { key: ' ' }, when: inViewer, on: () => !!S.solo },
-    { id: 'geo', label: 'Locations', key: 'G', press: { key: 'g' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.geo },
     { id: 'zoom', label: 'Actual pixels', key: 'Z', press: { key: 'z' }, when: () => !!S.solo, on: () => !!(S.solo && S.solo.zoom) },
     { id: 'fullscreen', label: 'Full screen', key: 'F', press: { key: 'f' }, on: () => isFullscreen() },
   ]],
@@ -2507,10 +2494,6 @@ function onKey(e) {
     }
     if (lower === 'v') {
       setVideosOnly(!S.settings.videosOnly);
-      return e.preventDefault();
-    }
-    if (lower === 'g') {
-      setGeo(!S.settings.geo);
       return e.preventDefault();
     }
     if (lower === 't') {

@@ -28,15 +28,13 @@ pub struct Settings {
     /// iCloud Shared Library photos (off: deleting one removes it for everyone)
     pub include_shared: bool,
     pub videos_only: bool,
-    /// show where each photo was taken
-    pub geo: bool,
     /// date range, "YYYY-MM-DD", inclusive
     pub from: Option<String>,
     pub to: Option<String>,
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { window: cluster::DEFAULT_WINDOW, clusters_only: true, daily: false, include_shared: false, videos_only: false, geo: false, from: None, to: None }
+        Settings { window: cluster::DEFAULT_WINDOW, clusters_only: true, daily: false, include_shared: false, videos_only: false, from: None, to: None }
     }
 }
 

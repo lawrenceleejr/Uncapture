@@ -96,8 +96,9 @@ photos) and in the large view.
   library) goes to the page with the assets. Place names: `/api/place`,
   rounded to 2 decimals, kept in `places.json`; PhotoKitSource asks
   CLGeocoder (deprecated in the newest SDK, kept for macOS 11). Never in the
-  key press: the page queues them. With locations on, captions are two
-  lines (`CAP` in app.js) and the grid is laid out for that.
+  key press: the page queues them. Always shown: in a cluster with a
+  geotag, captions are two lines (`capOf` in app.js, `L.cap`) and the grid
+  is laid out for that.
 - Marks are saved debounced; anything that reads them from the server
   (Review, delete) calls `flushMarks()` first.
 

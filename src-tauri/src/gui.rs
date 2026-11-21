@@ -97,7 +97,7 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
                 h,
                 "Look Closely",
                 true,
-                &[&item("large", "Large View   Space")?, &item("geo", "Locations   G")?, &item("zoom", "Actual Pixels   Z")?, &P::separator(h)?, &item("fullscreen", "Full Screen   F")?],
+                &[&item("large", "Large View   Space")?, &item("zoom", "Actual Pixels   Z")?, &P::separator(h)?, &item("fullscreen", "Full Screen   F")?],
             )?,
             &Submenu::with_items(
                 h,

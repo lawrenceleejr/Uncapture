@@ -52,7 +52,7 @@ const text = (page, sel) => page.$eval(sel, (e) => e.textContent);
 // each test starts from the defaults, nothing marked
 test.beforeEach(async () => {
   const put = (u, body) => fetch(base + u, { method: 'PUT', headers: { 'X-Uncapture': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  await put('/api/settings', { window: 60, clustersOnly: true, daily: false, videosOnly: false, geo: false, from: null, to: null });
+  await put('/api/settings', { window: 60, clustersOnly: true, daily: false, videosOnly: false, from: null, to: null });
   await put('/api/marks', { keep: [], del: [] });
 });
 const settle = (page, ms = 150) => page.waitForTimeout(ms);
@@ -164,14 +164,14 @@ test('viewer: flip, keep, focus, clear, explicit marks, favorites', async () => 
   // cluster 1: three photos, each with its date and time
   assert.equal(await looks(page), '-* - -');
   assert.deepEqual(await page.$$eval('#stage .caption .time', (t) => t.map((x) => x.textContent)), ['15 Jan 2024  10:00:00', '15 Jan 2024  10:00:03', '15 Jan 2024  10:00:06']);
-  // G: where each was taken, the place name once known
-  await page.keyboard.press('g');
-  await page.waitForFunction(() => [...document.querySelectorAll('#stage .geo')].every((g) => g.textContent === 'Knoxville, Tennessee · 35.96° N  83.92° W'));
+  // where each was taken, always, the place name once known
+  await page.waitForFunction(() => {
+    const g = [...document.querySelectorAll('#stage .geo')];
+    return g.length === 3 && g.every((x) => x.textContent === 'Knoxville, Tennessee · 35.96° N  83.92° W');
+  });
   await page.keyboard.press('ArrowRight');
-  assert.deepEqual(await page.$$eval('#stage .geo', (g) => g.map((x) => x.textContent)), ['', ''], 'no geotag: an empty line');
+  assert.equal(await page.$$eval('#stage .geo', (g) => g.length), 0, 'a cluster without geotags: one caption line');
   await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('g');
-  assert.equal(await page.$$eval('#stage .geo', (g) => g.length), 0);
   await page.keyboard.press('2');
   assert.equal(await looks(page), 'x K* x', '2 keeps the second; the rest are marked');
   await settle(page, 500);
@@ -369,7 +369,7 @@ test('every Mac menu bar item is a Menu command, and every command runs', async 
   const groups = await page.evaluate(() => MENU.map(([t]) => t.toLowerCase()));
   for (const g of groups) assert.ok(gui.toLowerCase().includes(`"${g}"`), `menu bar group ${g}`);
   // run each from the Menu, as the menu bar does
-  for (const id of ['next', 'prev', 'next10', 'prev10', 'last', 'first', 'nextphoto', 'prevphoto', 'focus', 'keep', 'keepall', 'clear', 'mark', 'clear', 'nextopen', 'large', 'zoom', 'large', 'longer', 'shorter', 'clustersonly', 'clustersonly', 'videosonly', 'videosonly', 'geo', 'geo', 'review', 'review', 'keys']) {
+  for (const id of ['next', 'prev', 'next10', 'prev10', 'last', 'first', 'nextphoto', 'prevphoto', 'focus', 'keep', 'keepall', 'clear', 'mark', 'clear', 'nextopen', 'large', 'zoom', 'large', 'longer', 'shorter', 'clustersonly', 'clustersonly', 'videosonly', 'videosonly', 'review', 'review', 'keys']) {
     await page.evaluate((id) => window.uncaptureCommand(id), id);
     await settle(page, 60);
   }

@@ -53,9 +53,10 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
       day in daily cleanup (`T`, `↵`). The footer counts "sharper copies
       from iCloud: N of M"; photos that were blurry turn sharp as they
       arrive, without flicker. Reopening the day is sharp at once.
-- [ ] **Locations.** `G` on a cluster taken somewhere known: the line under
-      each photo names the place and its coordinates (the name can take a
-      second to arrive); photos without a geotag have an empty line. In
+- [ ] **Locations.** A cluster taken somewhere known: the line under each
+      photo names the place and its coordinates (the name can take a second
+      to arrive); photos without a geotag have an empty line, and clusters
+      with no geotags have one caption line. In
       `npm start`/`--serve` mode only the coordinates show (Apple's geocoder
       answers on the app window's main thread).
 - [ ] **Videos only.** `V` shows every video, singles too; `Space` plays one.

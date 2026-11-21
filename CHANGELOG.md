@@ -14,8 +14,9 @@ TESTING.md.
   photos went.
 - The space cleared: large after each delete, and in all on the start screen
   (with a sparkline of it growing).
-- Videos only (`V`); locations under each photo (`G`, off by default), with
-  place names from Apple's geocoder; the date and time in every caption.
+- Videos only (`V`); where each photo was taken, under it, whenever it has a
+  geotag, with place names from Apple's geocoder; the date and time in every
+  caption.
 - Daily cleanup fetches sharp copies of the day's photos from iCloud (up to
   300), so they aren't blurry with Optimize Mac Storage.
 - `j` / `k` step through photos one at a time, across clusters; `D` marks

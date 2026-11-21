@@ -11,8 +11,8 @@ marked for deletion. When I'm done, I look over everything that will go, and
 Uncapture deletes it from Photos in one batch.
 
 It's a small Mac app. It runs only on my Mac and has no account. The only
-thing that ever leaves the Mac is a photo's coordinates when I turn on
-locations (`G`): Apple's geocoder turns them into a place name, as Photos
+thing that ever leaves the Mac is a geotagged photo's coordinates, rounded to
+about a kilometre: Apple's geocoder turns them into a place name, as Photos
 does.
 
 ## How it works
@@ -29,8 +29,8 @@ does.
   29 February show on 28 February in other years.
 - **Videos only** (`V`) shows every video, grouped the same way, alone or
   not.
-- **Locations** (`G`, off by default) adds a line under each photo: the
-  place and the coordinates from its geotag.
+- **Locations.** In a cluster with geotags, a second line under each photo
+  gives the place and the coordinates.
 - **Dates.** On the start screen I drag across the chart of photos per month
   to pick a range, or use `←` `→`.
 
