@@ -13,8 +13,8 @@ const { writeLibrary } = require('./fixture');
 
 const H = 3600_000;
 const D = 24 * H;
-// 2024-06-01T10:00:00Z
-const T0 = Date.UTC(2024, 5, 1, 10, 0, 0);
+// 2024-07-15T10:00:00Z (not on 1 June: the daily test uses that)
+const T0 = Date.UTC(2024, 6, 15, 10, 0, 0);
 const thumbOf = (n) => Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.from(`thumb-${n}`), Buffer.from([0xff, 0xd9])]);
 
 /* The library:
