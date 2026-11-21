@@ -361,18 +361,19 @@ function drawChart() {
     if (i1 < 0) i1 = n - 1;
     mk('rect', { x: (i0 * step).toFixed(2), y: 0, width: ((i1 - i0 + 1) * step).toFixed(2), height: H, class: 'band' });
   }
+  const top = H - 13; // headroom for the peak's label
   bins.forEach((b, i) => {
     if (!b.n) return;
-    const h = Math.max(1.5, (b.n / max) * H);
+    const h = Math.max(1.5, (b.n / max) * top);
     const r = mk('rect', { x: (i * step + (step - bw) / 2).toFixed(2), y: (H - h).toFixed(2), width: bw.toFixed(2), height: h.toFixed(2), class: inSel(b) ? 'bar on' : 'bar' });
     const label = ST.monthly ? `${MONTHS[+b.key.slice(5, 7) - 1]} ${b.key.slice(0, 4)}` : niceDay(b.key);
     r.append(Object.assign(document.createElementNS(NS, 'title'), { textContent: `${label}: ${fmtN(b.n)}` }));
   });
   mk('line', { x1: 0, x2: W, y1: H + 0.5, y2: H + 0.5, class: 'base' });
   // the tallest bin labelled directly
-  let top = 0;
-  bins.forEach((b, i) => b.n > bins[top].n && (top = i));
-  mk('text', { x: clamp(top * step + step / 2, 14, W - 14), y: Math.max(9, H - (bins[top].n / max) * H - 4), class: 'peak', 'text-anchor': 'middle' }, fmtN(bins[top].n));
+  let peak = 0;
+  bins.forEach((b, i) => b.n > bins[peak].n && (peak = i));
+  mk('text', { x: clamp(peak * step + step / 2, 14, W - 14), y: H - (bins[peak].n / max) * top - 4, class: 'peak', 'text-anchor': 'middle' }, fmtN(bins[peak].n));
   // sparse labels: years (monthly) or the ends and month starts (daily)
   const labels = [];
   if (ST.monthly) {

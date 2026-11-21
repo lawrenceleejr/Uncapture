@@ -57,6 +57,9 @@ struct Lib {
     version: u64,
     loading: bool,
     loaded: bool,
+    /// how long the last full read of the library took (the plan's target:
+    /// under 2 s for 100,000 assets on an M1)
+    fetch_ms: u64,
 }
 
 pub struct App {
@@ -172,7 +175,11 @@ impl App {
         let app = self.clone();
         std::thread::spawn(move || loop {
             if app.src.authorization().allowed() {
+                let t0 = std::time::Instant::now();
                 let all = app.src.assets();
+                let ms = t0.elapsed().as_millis() as u64;
+                println!("  read {} photos and videos in {} ms", all.len(), ms);
+                app.lib.write().unwrap().fetch_ms = ms;
                 write_atomic(&app.cache_file(), &serde_json::to_vec(&all).unwrap_or_default());
                 app.set_assets(all, true);
             }
@@ -386,7 +393,7 @@ fn state_json(app: &App) -> Value {
         "today": fmt_day(today()),
         "firstDeleteSeen": s.first_delete_seen,
         "windows": cluster::WINDOWS,
-        "library": { "version": lib.version, "count": lib.assets.len(), "loading": lib.loading, "loaded": lib.loaded },
+        "library": { "version": lib.version, "count": lib.assets.len(), "loading": lib.loading, "loaded": lib.loaded, "fetchMs": lib.fetch_ms },
         "marks": {
             "keep": s.keep.iter().map(|l| short_id(l)).collect::<Vec<_>>(),
             "del": s.del.iter().map(|l| short_id(l)).collect::<Vec<_>>(),
