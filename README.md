@@ -72,9 +72,15 @@ reported.
 ## Install
 
 Download the `.dmg` for Apple Silicon or Intel from
-[Releases](https://github.com/lawrenceleejr/uncapture/releases), and drag
-Uncapture to Applications. The app isn't signed with an Apple Developer
-ID, so the first time, right-click it and choose **Open**.
+[Releases](https://github.com/lawrenceleejr/uncapture/releases). Its window
+shows the three steps:
+
+1. Drag Uncapture to Applications.
+2. Open it. The app isn't signed with an Apple Developer ID, so the first
+   time macOS blocks it; click Done.
+3. Open the **Open Privacy & Security** shortcut in the same window, click
+   **Open Anyway** next to Uncapture (near the bottom, under Security), and
+   confirm. That's needed once per version.
 
 Uncapture asks for access to Photos when I press the button on its first
 screen. **macOS asks again after each update**: the permission belongs to the

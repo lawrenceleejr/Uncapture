@@ -16,7 +16,12 @@ npm test               # server tests against FakeSource
 npm run test:ui        # flip speed, WebKit, keys, review/delete (headless)
 npm run demo           # a made-up library in build/demo, served in a browser
 npm run app            # the Mac app (macOS only)
+npm run dist           # the .app, then the .dmg via scripts/make-dmg.sh (macOS, needs create-dmg)
 ```
+
+The .dmg's background (`src-tauri/dmg/background.svg`, rendered to
+`background.png` and `@2x`) shows the first-run steps; icon positions in it
+must match `scripts/make-dmg.sh`.
 
 Re-clustering speed (100,000 assets under 100 ms) is asserted only in a
 release build: `cargo test --release --no-default-features`.

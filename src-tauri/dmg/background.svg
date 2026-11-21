@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="540" viewBox="0 0 660 540">
+  <!-- The .dmg window. Finder draws the icons and their labels on top:
+       Uncapture at (180, 170), Applications at (480, 170),
+       "Open Privacy & Security" at (330, 430). -->
+  <style>
+    text { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; fill: #1b1a18; }
+    .mark { font-size: 10.5px; letter-spacing: .16em; fill: #8a867e; }
+    .step { font-size: 15px; }
+    .note { font-size: 12.5px; fill: #6f6b63; }
+    .n { font-size: 11px; fill: #f4f1ea; font-weight: 600; }
+  </style>
+  <rect width="660" height="540" fill="#f4f1ea"/>
+  <text x="24" y="30" class="mark">UNCAPTURE</text>
+
+  <!-- 1 -->
+  <circle cx="200" cy="76" r="9" fill="#1b1a18"/><text x="200" y="80" class="n" text-anchor="middle">1</text>
+  <text x="217" y="81" class="step">Drag Uncapture to Applications</text>
+  <line x1="262" y1="170" x2="392" y2="170" stroke="#1b1a18" stroke-width="1.2"/>
+  <path d="M392 164 L404 170 L392 176" fill="none" stroke="#1b1a18" stroke-width="1.2"/>
+
+  <line x1="24" y1="262" x2="636" y2="262" stroke="#d8d3c8" stroke-width="1"/>
+
+  <!-- 2 -->
+  <circle cx="44" cy="294" r="9" fill="#1b1a18"/><text x="44" y="298" class="n" text-anchor="middle">2</text>
+  <text x="61" y="299" class="step">Open Uncapture from Applications.</text>
+  <text x="61" y="319" class="note">macOS blocks it the first time, because it isn't from a registered developer. Click Done.</text>
+
+  <!-- 3 -->
+  <circle cx="44" cy="350" r="9" fill="#1b1a18"/><text x="44" y="354" class="n" text-anchor="middle">3</text>
+  <text x="61" y="355" class="step">Open Privacy &amp; Security below, then click Open Anyway.</text>
+  <text x="61" y="375" class="note">It's near the bottom, under Security. Confirm, and Uncapture opens. Only needed once.</text>
+</svg>

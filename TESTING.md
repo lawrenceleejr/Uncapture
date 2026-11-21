@@ -12,6 +12,14 @@ first section before relying on it.
 
 Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
 
+- [ ] **The .dmg window** shows the three steps on its background, Uncapture
+      and the Applications link side by side, and the "Open Privacy &
+      Security" shortcut below, all labels readable and nothing cut off.
+- [ ] **Blocked, then allowed.** After dragging to Applications, opening
+      Uncapture is blocked. The shortcut opens System Settings at Privacy &
+      Security, where "Open Anyway" is listed for Uncapture. If the shortcut
+      opens the wrong page (or nothing), note the macOS version: ______
+
 - [ ] **Permission prompt.** The first screen says Uncapture needs to see
       the library. `↵` shows macOS's prompt, with the text "Uncapture shows
       your photos in groups…". Allow: the start screen appears with the

@@ -11,7 +11,7 @@
     "start": "cargo run --release --no-default-features --manifest-path src-tauri/Cargo.toml -- --serve",
     "demo": "node scripts/demo-library.js build/demo && cargo run --release --no-default-features --manifest-path src-tauri/Cargo.toml -- --serve --fake build/demo",
     "app": "tauri dev",
-    "dist": "tauri build",
+    "dist": "tauri build --bundles app && scripts/make-dmg.sh",
     "tauri": "tauri",
     "test:rust": "cargo test --no-default-features --manifest-path src-tauri/Cargo.toml",
     "test": "node --test test/*.test.js",

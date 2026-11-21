@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            npx tauri build --target ${{ matrix.target }} --bundles app,dmg && exit 0
+            npx tauri build --target ${{ matrix.target }} --bundles app && exit 0
             echo "build attempt $attempt failed; retrying in 30 s"
             sleep 30
           done
@@ -101,12 +101,29 @@ jobs:
           plist="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Uncapture.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryUsageDescription' "$plist"
           codesign -d --entitlements - "src-tauri/target/${{ matrix.target }}/release/bundle/macos/Uncapture.app" 2>&1 | grep -q photos-library
-      - name: Name the download
-        # fixed names, so links to releases/latest/download/<name> always work
+      - name: Make the .dmg (first-run steps on its background, a shortcut to Privacy & Security)
+        # fixed names, so links to releases/latest/download/<name> always work.
+        # create-dmg lays out the window through Finder, which can be slow to
+        # answer on a fresh runner: retry
         shell: bash
         run: |
-          mkdir -p dist
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg "dist/${{ matrix.asset }}"
+          brew install create-dmg
+          for attempt in 1 2 3; do
+            scripts/make-dmg.sh ${{ matrix.target }} "dist/${{ matrix.asset }}" && exit 0
+            echo "dmg attempt $attempt failed; retrying in 10 s"
+            sleep 10
+          done
+          exit 1
+      - name: Check the .dmg holds the app, the Applications link and the shortcut
+        shell: bash
+        run: |
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "dist/${{ matrix.asset }}"
+          ls -la "$mnt"
+          test -d "$mnt/Uncapture.app" && test -L "$mnt/Applications"
+          test -f "$mnt/Open Privacy & Security.webloc" && test -f "$mnt/.background/background.tiff"
+          grep -q 'x-apple.systempreferences' "$mnt/Open Privacy & Security.webloc"
+          hdiutil detach "$mnt"
       - uses: actions/upload-artifact@v4
         with:
           name: Uncapture-${{ matrix.name }}

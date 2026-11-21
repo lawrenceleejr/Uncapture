@@ -14,7 +14,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app"
+    ],
     "category": "Photography",
     "shortDescription": "Keep the best of each burst of photos, delete the rest",
     "icon": [
