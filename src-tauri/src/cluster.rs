@@ -19,6 +19,8 @@ pub struct Filter {
     pub clusters_only: bool,
     /// daily cleanup: only this day of the year, from earlier years
     pub on_this_day: Option<Ymd>,
+    /// videos only (every video: "clusters only" doesn't apply)
+    pub videos_only: bool,
     /// date range, local days, inclusive (ignored in daily cleanup)
     pub from: Option<Ymd>,
     pub to: Option<Ymd>,
@@ -115,6 +117,9 @@ pub fn build(assets: &[Asset], f: &Filter, offset_min: &dyn Fn(i64) -> i32) -> V
     if let Some(today) = f.on_this_day {
         order.retain(|&i| on_this_day(local_day(&assets[i], offset_min), today));
     }
+    if f.videos_only {
+        order.retain(|&i| assets[i].kind == crate::source::Kind::Video);
+    }
     let mut cs = cluster(assets, &order, f.window.max(1));
     if f.on_this_day.is_none() && (f.from.is_some() || f.to.is_some()) {
         // a cluster belongs to the day it starts on
@@ -123,7 +128,7 @@ pub fn build(assets: &[Asset], f: &Filter, offset_min: &dyn Fn(i64) -> i32) -> V
             f.from.map_or(true, |a| d >= a) && f.to.map_or(true, |b| d <= b)
         });
     }
-    if f.clusters_only {
+    if f.clusters_only && !f.videos_only {
         cs.retain(|c| c.len() > 1);
     }
     cs
@@ -171,6 +176,7 @@ mod tests {
             burst_id: None,
             shared: false,
             bytes: None,
+            location: None,
         }
     }
     fn utc(_: i64) -> i32 {
@@ -223,6 +229,15 @@ mod tests {
         let mut flt = f(60);
         flt.clusters_only = true;
         assert_eq!(build(&a, &flt, &utc), vec![vec![0, 1]]);
+    }
+
+    #[test]
+    fn videos_only_shows_every_video() {
+        let mut a = vec![asset("a", T0), asset("v1", T0 + 1000), asset("b", T0 + 2000), asset("v2", T0 + 10 * MIN)];
+        a[1].kind = Kind::Video;
+        a[3].kind = Kind::Video;
+        let flt = Filter { window: 60, clusters_only: true, videos_only: true, ..Default::default() };
+        assert_eq!(build(&a, &flt, &utc), vec![vec![1], vec![3]], "single videos too");
     }
 
     #[test]

@@ -32,10 +32,11 @@ test.before(async () => {
   spec.forEach(([size, day], ci) => {
     for (let k = 0; k < size; k++) {
       const sc = art[(ci + k) % art.length];
-      photos.push({ name: `P${String(n++).padStart(3, '0')}.JPG`, t: T0 + day * DAY + ci * 60_000 + k * 3000, tz: 0, image: sc[0], thumb: sc[1], width: 960, height: 640, extra: ci === 2 && k === 3 ? { favorite: true } : undefined });
+      photos.push({ name: `P${String(n++).padStart(3, '0')}.JPG`, t: T0 + day * DAY + ci * 60_000 + k * 3000, tz: 0, image: sc[0], thumb: sc[1], width: 960, height: 640, gps: ci === 0 ? [35.9606, -83.9207] : undefined, extra: ci === 2 && k === 3 ? { favorite: true } : undefined });
     }
   });
-  writeLibrary(lib, photos);
+  photos.push({ name: 'CLIP.MOV', t: T0 + 50 * DAY, extra: { duration: 7 } });
+  writeLibrary(lib, photos, { places: { '35.96,-83.92': 'Knoxville, Tennessee' } });
   // daily cleanup "today" is the anniversary of the first cluster's day
   srv = startServer(lib, { env: { UNCAPTURE_TODAY: '2025-01-15' } });
   base = await srv.base;
@@ -51,7 +52,7 @@ const text = (page, sel) => page.$eval(sel, (e) => e.textContent);
 // each test starts from the defaults, nothing marked
 test.beforeEach(async () => {
   const put = (u, body) => fetch(base + u, { method: 'PUT', headers: { 'X-Uncapture': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  await put('/api/settings', { window: 60, clustersOnly: true, daily: false, from: null, to: null });
+  await put('/api/settings', { window: 60, clustersOnly: true, daily: false, videosOnly: false, geo: false, from: null, to: null });
   await put('/api/marks', { keep: [], del: [] });
 });
 const settle = (page, ms = 150) => page.waitForTimeout(ms);
@@ -72,8 +73,15 @@ test('start screen: window, filters, dates, open', async () => {
   await page.keyboard.press('c');
   await settle(page, 300);
   assert.equal(await page.$eval('#opt-clusters', (e) => e.checked), false);
-  assert.match(await text(page, '#big-n'), /^20 clusters · 60 photos$/);
+  assert.match(await text(page, '#big-n'), /^21 clusters · 61 photos$/);
   await page.keyboard.press('c');
+  await settle(page, 300);
+  // videos only (V): every video, even a single one
+  await page.keyboard.press('v');
+  await settle(page, 300);
+  assert.equal(await page.$eval('#opt-videos', (e) => e.checked), true);
+  assert.match(await text(page, '#big-n'), /^1 video · 1 cluster$/);
+  await page.keyboard.press('v');
   await settle(page, 300);
   // daily cleanup (T): the calendar, on today (15 January); earlier years only
   await page.keyboard.press('t');
@@ -153,8 +161,17 @@ test('viewer: flip, keep, focus, clear, explicit marks, favorites', async () => 
   await page.keyboard.press('Shift+ArrowLeft');
   assert.equal(await idx(), 0);
 
-  // cluster 1: three photos
+  // cluster 1: three photos, each with its date and time
   assert.equal(await looks(page), '-* - -');
+  assert.deepEqual(await page.$$eval('#stage .caption .time', (t) => t.map((x) => x.textContent)), ['15 Jan 2024  10:00:00', '15 Jan 2024  10:00:03', '15 Jan 2024  10:00:06']);
+  // G: where each was taken, the place name once known
+  await page.keyboard.press('g');
+  await page.waitForFunction(() => [...document.querySelectorAll('#stage .geo')].every((g) => g.textContent === 'Knoxville, Tennessee · 35.96° N  83.92° W'));
+  await page.keyboard.press('ArrowRight');
+  assert.deepEqual(await page.$$eval('#stage .geo', (g) => g.map((x) => x.textContent)), ['', ''], 'no geotag: an empty line');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('g');
+  assert.equal(await page.$$eval('#stage .geo', (g) => g.length), 0);
   await page.keyboard.press('2');
   assert.equal(await looks(page), 'x K* x', '2 keeps the second; the rest are marked');
   await settle(page, 500);
@@ -352,7 +369,7 @@ test('every Mac menu bar item is a Menu command, and every command runs', async 
   const groups = await page.evaluate(() => MENU.map(([t]) => t.toLowerCase()));
   for (const g of groups) assert.ok(gui.toLowerCase().includes(`"${g}"`), `menu bar group ${g}`);
   // run each from the Menu, as the menu bar does
-  for (const id of ['next', 'prev', 'next10', 'prev10', 'last', 'first', 'nextphoto', 'prevphoto', 'focus', 'keep', 'keepall', 'clear', 'mark', 'clear', 'nextopen', 'large', 'zoom', 'large', 'longer', 'shorter', 'clustersonly', 'clustersonly', 'review', 'review', 'keys']) {
+  for (const id of ['next', 'prev', 'next10', 'prev10', 'last', 'first', 'nextphoto', 'prevphoto', 'focus', 'keep', 'keepall', 'clear', 'mark', 'clear', 'nextopen', 'large', 'zoom', 'large', 'longer', 'shorter', 'clustersonly', 'clustersonly', 'videosonly', 'videosonly', 'geo', 'geo', 'review', 'review', 'keys']) {
     await page.evaluate((id) => window.uncaptureCommand(id), id);
     await settle(page, 60);
   }

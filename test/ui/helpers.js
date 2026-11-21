@@ -22,7 +22,7 @@ async function makeLibrary(browser, dir, sizes, { scenes = 6 } = {}) {
   sizes.forEach((size, ci) => {
     for (let k = 0; k < size; k++) {
       const sc = art[(ci + k) % art.length];
-      photos.push({ name: `IMG_${String(n++).padStart(4, '0')}.JPG`, t: T0 + ci * 600_000 + k * 2000, tz: 120, image: sc[0], thumb: sc[1], width: 2400, height: 1600 });
+      photos.push({ name: `IMG_${String(n++).padStart(4, '0')}.JPG`, t: T0 + ci * 600_000 + k * 2000, tz: 120, image: sc[0], thumb: sc[1], width: 2400, height: 1600, gps: [48.85 + ci * 0.01, 2.35] });
     }
   });
   writeLibrary(dir, photos);

@@ -37,13 +37,28 @@ function ifd(entries, extraStart) {
 
 const ascii = (s) => Buffer.from(s + '\0', 'latin1');
 
-function exifApp1({ dateTime, offset, subSec, orientation = 1, width = 4032, height = 3024, thumb = FAKE_THUMB }) {
-  // tiff offsets: 8 IFD0 | IFD0 extra | ExifIFD | Exif extra | IFD1 | thumbnail
+// degrees as three rationals (degrees, minutes, seconds × 1000)
+function dms(v) {
+  const a = Math.abs(v);
+  const d = Math.floor(a);
+  const m = Math.floor((a - d) * 60);
+  const sec = Math.round(((a - d) * 60 - m) * 60 * 1000);
+  const b = Buffer.alloc(24);
+  [[d, 1], [m, 1], [sec, 1000]].forEach(([n, den], i) => {
+    b.writeUInt32LE(n, i * 8);
+    b.writeUInt32LE(den, i * 8 + 4);
+  });
+  return b;
+}
+
+function exifApp1({ dateTime, offset, subSec, orientation = 1, width = 4032, height = 3024, thumb = FAKE_THUMB, gps }) {
+  // tiff offsets: 8 IFD0 | IFD0 extra | ExifIFD | Exif extra | GPS IFD | IFD1 | thumbnail
   const ifd0Entries = [
     { tag: 0x010f, type: 2, count: 6, value: ascii('Apple') },
     { tag: 0x0112, type: 3, count: 1, value: orientation },
     { tag: 0x8769, type: 4, count: 1, value: 0 }, // patched below
   ];
+  if (gps) ifd0Entries.push({ tag: 0x8825, type: 4, count: 1, value: 0 }); // patched below
   const ifd0Size = 2 + ifd0Entries.length * 12 + 4;
   let d0 = ifd(ifd0Entries.map((e) => ({ ...e })), 8 + ifd0Size);
   const exifStart = d0.end + (d0.end % 2);
@@ -60,7 +75,25 @@ function exifApp1({ dateTime, offset, subSec, orientation = 1, width = 4032, hei
   const de = ifd(exifEntries, exifStart + exifSize);
   const tiffHead = Buffer.from([0x49, 0x49, 0x2a, 0x00, 8, 0, 0, 0]);
   const pad0 = Buffer.alloc(exifStart - (8 + d0.buf.length + d0.extra.length));
-  let ifd1Start = exifStart + de.buf.length + de.extra.length;
+  const exifEnd = exifStart + de.buf.length + de.extra.length;
+  let gpsPart = Buffer.alloc(0);
+  let afterGps = exifEnd;
+  if (gps) {
+    const gpsStart = exifEnd + (exifEnd % 2);
+    const [lat, lon] = gps;
+    const gpsEntries = [
+      { tag: 1, type: 2, count: 2, value: Buffer.from(lat < 0 ? 'S\0' : 'N\0') },
+      { tag: 2, type: 5, count: 3, value: dms(lat) },
+      { tag: 3, type: 2, count: 2, value: Buffer.from(lon < 0 ? 'W\0' : 'E\0') },
+      { tag: 4, type: 5, count: 3, value: dms(lon) },
+    ];
+    const dg = ifd(gpsEntries, gpsStart + 2 + 4 * 12 + 4);
+    gpsPart = Buffer.concat([Buffer.alloc(gpsStart - exifEnd), dg.buf, dg.extra]);
+    afterGps = gpsStart + dg.buf.length + dg.extra.length;
+    ifd0Entries.find((e) => e.tag === 0x8825).value = gpsStart;
+    d0 = ifd(ifd0Entries, 8 + ifd0Size);
+  }
+  let ifd1Start = afterGps;
   ifd1Start += ifd1Start % 2;
   const ifd1Size = 2 + 2 * 12 + 4;
   const d1 = ifd(
@@ -71,8 +104,8 @@ function exifApp1({ dateTime, offset, subSec, orientation = 1, width = 4032, hei
     ifd1Start + ifd1Size
   );
   d0.buf.writeUInt32LE(ifd1Start, d0.buf.length - 4);
-  const pad1 = Buffer.alloc(ifd1Start - (exifStart + de.buf.length + de.extra.length));
-  const tiff = Buffer.concat([tiffHead, d0.buf, d0.extra, pad0, de.buf, de.extra, pad1, d1.buf, thumb]);
+  const pad1 = Buffer.alloc(ifd1Start - afterGps);
+  const tiff = Buffer.concat([tiffHead, d0.buf, d0.extra, pad0, de.buf, de.extra, gpsPart, pad1, d1.buf, thumb]);
   const payload = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
   if (payload.length + 2 > 0xffff) throw new Error('thumbnail too big for one APP1 segment');
   const seg = Buffer.from([0xff, 0xe1, 0, 0]);
@@ -100,7 +133,7 @@ function exifOffset(offMin) {
 }
 
 /* A library folder from a list of photos:
-   [{ name, t (ms UTC), tz (min), image?, thumb?, width?, height?, extra? }]
+   [{ name, t (ms UTC), tz (min), image?, thumb?, width?, height?, gps: [lat, lon]?, extra? }]
    `extra` goes to fake.json (favorite, burst, hidden, shared, …). */
 function writeLibrary(dir, photos, manifest = {}) {
   fs.mkdirSync(dir, { recursive: true });
@@ -117,7 +150,7 @@ function writeLibrary(dir, photos, manifest = {}) {
       fs.writeFileSync(
         f,
         buildJpeg(
-          { dateTime: exifTime(p.t - ms, tz), offset: exifOffset(tz), subSec: ms ? String(ms).padStart(3, '0') : undefined, width: p.width || 4032, height: p.height || 3024 },
+          { dateTime: exifTime(p.t - ms, tz), offset: exifOffset(tz), subSec: ms ? String(ms).padStart(3, '0') : undefined, width: p.width || 4032, height: p.height || 3024, gps: p.gps },
           { image: p.image, thumb: p.thumb }
         )
       );

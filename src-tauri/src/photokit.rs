@@ -16,6 +16,10 @@ use objc2::{define_class, msg_send, sel, AllocAnyThread, DefinedClass};
 use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSImageCompressionFactor};
 use objc2_core_foundation::CGSize;
 use objc2_foundation::{NSArray, NSDictionary, NSError, NSNumber, NSObjectNSKeyValueCoding, NSString, NSURL};
+// CLGeocoder is deprecated in the newest SDK (for MapKit) but is what works
+// back to macOS 11, the app's minimum
+#[allow(deprecated)]
+use objc2_core_location::{CLGeocoder, CLLocation, CLPlacemark};
 use objc2_photos::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -193,6 +197,10 @@ fn asset_of(a: &PHAsset) -> Option<Asset> {
             // PhotoKit has no public flag for the iCloud Shared Library (see TESTING.md)
             shared: false,
             bytes: None,
+            location: a.location().map(|l| {
+                let c = l.coordinate();
+                (c.latitude, c.longitude)
+            }),
         })
     }
 }
@@ -414,6 +422,30 @@ impl PhotoSource for PhotoKitSource {
             Ok((false, m)) => Err(m.unwrap_or_else(|| "Photos said no".into())),
             Err(_) => Err("Photos did not answer".into()),
         }
+    }
+
+    // Apple's reverse geocoder (what Photos uses): it answers on the main
+    // queue, which the app window keeps running. One question at a time.
+    #[allow(deprecated)]
+    fn place(&self, lat: f64, lon: f64) -> Option<String> {
+        static ONE: Mutex<()> = Mutex::new(());
+        let _one = ONE.lock().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(Some(tx));
+        let done = RcBlock::new(move |marks: *mut NSArray<CLPlacemark>, _e: *mut NSError| {
+            let name = unsafe { marks.as_ref() }.and_then(|m| m.firstObject()).map(|p| unsafe {
+                let parts: Vec<String> = [p.locality(), p.administrativeArea(), p.country()].into_iter().flatten().map(|s| s.to_string()).collect();
+                // "Knoxville, Tennessee" (the country only when there's nothing nearer)
+                parts.into_iter().take(2).collect::<Vec<_>>().join(", ")
+            });
+            if let Some(t) = tx.lock().unwrap().take() {
+                let _ = t.send(name.filter(|n| !n.is_empty()));
+            }
+        });
+        let loc = unsafe { CLLocation::initWithLatitude_longitude(CLLocation::alloc(), lat, lon) };
+        let geo = unsafe { CLGeocoder::new() };
+        unsafe { geo.reverseGeocodeLocation_completionHandler(&loc, RcBlock::as_ptr(&done)) };
+        rx.recv_timeout(Duration::from_secs(10)).ok().flatten()
     }
 
     fn on_change(&self, f: Box<dyn Fn() + Send + Sync>) {

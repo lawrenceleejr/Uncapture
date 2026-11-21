@@ -97,7 +97,7 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
                 h,
                 "Look Closely",
                 true,
-                &[&item("large", "Large View   Space")?, &item("zoom", "Actual Pixels   Z")?, &P::separator(h)?, &item("fullscreen", "Full Screen   F")?],
+                &[&item("large", "Large View   Space")?, &item("geo", "Locations   G")?, &item("zoom", "Actual Pixels   Z")?, &P::separator(h)?, &item("fullscreen", "Full Screen   F")?],
             )?,
             &Submenu::with_items(
                 h,
@@ -108,6 +108,7 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
                     &item("shorter", "Shorter Window   [")?,
                     &P::separator(h)?,
                     &item("clustersonly", "Clusters Only   C")?,
+                    &item("videosonly", "Videos Only   V")?,
                     &item("daily", "Daily Cleanup (On This Day)   T")?,
                     &P::separator(h)?,
                     &item("start", "Dates and Filters…   O")?,

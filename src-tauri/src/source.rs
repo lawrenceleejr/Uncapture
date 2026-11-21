@@ -63,6 +63,9 @@ pub struct Asset {
     pub shared: bool,
     /// file size if known cheaply; see `PhotoSource::bytes`
     pub bytes: Option<u64>,
+    /// where it was taken: latitude, longitude
+    #[serde(default)]
+    pub location: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -104,6 +107,10 @@ pub trait PhotoSource: Send + Sync {
     /// daily cleanup's prefetch; `image` with a size never downloads)
     fn download(&self, id: &AssetId, px: u32) -> Option<Vec<u8>> {
         self.image(id, Some(px), std::sync::Arc::new(|_| {}))
+    }
+    /// a place name for a geotag ("Knoxville, Tennessee"), if one can be found
+    fn place(&self, _lat: f64, _lon: f64) -> Option<String> {
+        None
     }
     /// warm the source's own cache for photos about to be shown
     fn preheat(&self, _ids: &[AssetId], _px: u32) {}

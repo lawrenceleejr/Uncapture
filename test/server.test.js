@@ -28,8 +28,8 @@ const thumbOf = (n) => Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.from(`th
    from 1 June 2025 (this year: not "earlier") with UNCAPTURE_TODAY=2025-06-01 */
 function library(dir) {
   const p = [];
-  const add = (name, t, extra, tz = 0) => p.push({ name, t, tz, thumb: thumbOf(name), extra });
-  add('A1.JPG', T0);
+  const add = (name, t, extra, tz = 0, gps) => p.push({ name, t, tz, thumb: thumbOf(name), extra, gps });
+  add('A1.JPG', T0, undefined, 0, [35.96061, -83.92074]);
   add('A2.JPG', T0 + 2000);
   add('A3.JPG', T0 + 4000);
   add('B1.JPG', T0 + 10 * 60_000);
@@ -52,7 +52,8 @@ function library(dir) {
   add('TOKYO.JPG', Date.UTC(2023, 5, 1, 14, 30, 0), null, 540);
   add('JUNE2.JPG', Date.UTC(2023, 5, 2, 8, 0, 0));
   add('THISYEAR.JPG', Date.UTC(2025, 5, 1, 8, 0, 0));
-  writeLibrary(dir, p);
+  add('SOUTH.JPG', Date.UTC(2023, 0, 9, 8, 0, 0), undefined, 0, [-33.8568, 151.2153]);
+  writeLibrary(dir, p, { places: { '35.96,-83.92': 'Knoxville, Tennessee' } });
 }
 
 let srv;
@@ -121,7 +122,7 @@ test('assets: sorted by time, stable ids, hidden and shared left out', async () 
   assert.ok(ids.every((id) => /^[0-9a-f]{16}$/.test(id)));
   assert.ok(!ids.includes(idOf('HIDDEN.JPG')), 'hidden photos never show');
   assert.ok(!ids.includes(idOf('SHARED.JPG')), 'Shared Library photos are left out by default');
-  assert.equal(ids.length, 20);
+  assert.equal(ids.length, 21);
   const times = ASSETS.map((a) => a[1]);
   assert.deepEqual(times, [...times].sort((a, b) => a - b));
   const a1 = ASSETS.find((a) => a[0] === idOf('A1.JPG'));
@@ -135,6 +136,24 @@ test('assets: sorted by time, stable ids, hidden and shared left out', async () 
   const mov = ASSETS.find((a) => a[0] === idOf('F1.MOV'));
   assert.equal(mov[3], 1, 'a video');
   assert.equal(mov[6], 4.5);
+});
+
+test('locations: from EXIF GPS, and place names asked once per spot', async () => {
+  const a1 = ASSETS.find((a) => a[0] === idOf('A1.JPG'));
+  assert.ok(Math.abs(a1[8] - 35.96061) < 1e-4 && Math.abs(a1[9] + 83.92074) < 1e-4, `A1 at ${a1[8]}, ${a1[9]}`);
+  const south = ASSETS.find((a) => a[0] === idOf('SOUTH.JPG'));
+  assert.ok(south[8] < -33.8 && south[9] > 151.2, 'south and east');
+  assert.equal(ASSETS.find((a) => a[0] === idOf('A2.JPG')).length, 8, 'no geotag: no location');
+  assert.deepEqual((await api('GET', '/api/place?lat=35.9606&lon=-83.9207')).data, { place: 'Knoxville, Tennessee' });
+  assert.deepEqual((await api('GET', '/api/place?lat=1&lon=2')).data, { place: null });
+  assert.equal((await api('GET', '/api/place?lat=x')).status, 400);
+  const cache = JSON.parse(fs.readFileSync(path.join(tmp, 'home', '.uncapture', 'places.json')));
+  assert.deepEqual(cache, { '35.96,-83.92': 'Knoxville, Tennessee' }, 'found names are kept on disk');
+});
+
+test('library: videos only shows every video, alone or not', async () => {
+  const v = (await api('GET', '/api/library?videosOnly=1&clustersOnly=1')).data;
+  assert.deepEqual(clusterNames(v), [['F1.MOV']]);
 });
 
 test('library: clusters at 60 s, singles hidden by "clusters only"', async () => {

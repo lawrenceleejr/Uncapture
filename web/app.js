@@ -38,7 +38,7 @@ const S = {
   focus: 0, // position of the focused photo in the cluster
   keep: new Set(),
   del: new Set(),
-  settings: { window: 60, clustersOnly: true, daily: false, from: null, to: null },
+  settings: { window: 60, clustersOnly: true, daily: false, videosOnly: false, geo: false, from: null, to: null },
   toDelete: 0,
   solo: null, // {zoom}
   dailyDay: null, // the day of the year for daily cleanup, "MM-DD" (today by default)
@@ -100,8 +100,8 @@ async function loadAssets() {
   const r = await fetch('/api/assets');
   const data = await r.json();
   S.version = data.version;
-  S.assets = data.assets.map(([id, t, tz, kind, w, h, dur, flags]) => ({
-    id, t, tz, w, h, dur,
+  S.assets = data.assets.map(([id, t, tz, kind, w, h, dur, flags, lat, lon]) => ({
+    id, t, tz, w, h, dur, lat, lon,
     kind: kind === 1 ? 'video' : kind === 2 ? 'live' : 'photo',
     fav: !!(flags & 1), shot: !!(flags & 2), burst: !!(flags & 4), shared: !!(flags & 8),
   }));
@@ -184,6 +184,7 @@ function updateWhere() {
     const last = (S.server.dailyLog[dailyDay()] || []).at(-1);
     if (last) w.append(` · last cleaned up ${niceDay(last.date)}`);
   } else w.textContent = rangeLabel();
+  if (S.settings.videosOnly) w.append(' · videos only');
 }
 
 function updateDeleteCount() {
@@ -219,6 +220,8 @@ function showStart() {
   renderWindows();
   $('#opt-clusters').checked = S.settings.clustersOnly;
   $('#opt-daily').checked = S.settings.daily;
+  $('#opt-videos').checked = S.settings.videosOnly;
+  $('#opt-geo').checked = S.settings.geo;
   renderDaily();
   ST.bins = chartBins();
   drawChart();
@@ -255,6 +258,7 @@ function libraryUrl() {
   const s = S.settings;
   const q = new URLSearchParams({ window: s.window, clustersOnly: s.clustersOnly ? 1 : 0, onThisDay: s.daily ? 1 : 0 });
   if (s.daily) q.set('day', dailyDay());
+  if (s.videosOnly) q.set('videosOnly', 1);
   if (!s.daily && s.from) q.set('from', s.from);
   if (!s.daily && s.to) q.set('to', s.to);
   return '/api/library?' + q;
@@ -271,7 +275,9 @@ function refreshStart() {
     S.toDelete = lib.toDelete;
     updateDeleteCount();
     const n = lib.clusters.length;
-    $('#big-n').textContent = `${fmtN(n)} cluster${n === 1 ? '' : 's'} · ${fmtN(lib.photos)} photo${lib.photos === 1 ? '' : 's'}`;
+    $('#big-n').textContent = S.settings.videosOnly
+      ? `${fmtN(lib.photos)} video${lib.photos === 1 ? '' : 's'} · ${fmtN(n)} cluster${n === 1 ? '' : 's'}`
+      : `${fmtN(n)} cluster${n === 1 ? '' : 's'} · ${fmtN(lib.photos)} photo${lib.photos === 1 ? '' : 's'}`;
     const where = S.settings.daily
       ? lib.years.length
         ? `${dayName(dailyDay())}: ${lib.years.map(([y]) => y).join(' · ')}`
@@ -499,6 +505,8 @@ function bindStart() {
   });
   $('#opt-clusters').onchange = (e) => setClustersOnly(e.target.checked);
   $('#opt-daily').onchange = (e) => setDaily(e.target.checked);
+  $('#opt-videos').onchange = (e) => setVideosOnly(e.target.checked);
+  $('#opt-geo').onchange = (e) => setGeo(e.target.checked);
   $('#start-open').onclick = () => openViewer();
   $('#start-review').onclick = () => openReview();
   $('#start-return').onclick = () => backToViewer();
@@ -528,6 +536,70 @@ function setClustersOnly(on) {
   if (!$('#start').hidden) refreshStart();
   else recluster(on ? 'Clusters only' : 'Single photos too');
 }
+function setVideosOnly(on) {
+  S.settings.videosOnly = on;
+  $('#opt-videos').checked = on;
+  saveSettings();
+  if (!$('#start').hidden) refreshStart();
+  else recluster(on ? 'Videos only' : 'Photos and videos');
+}
+function setGeo(on) {
+  S.settings.geo = on;
+  $('#opt-geo').checked = on;
+  saveSettings();
+  layoutCache = null;
+  TL.version++;
+  if (!$('#viewer').hidden) render();
+  if (S.solo) renderSoloCaption();
+  if (!$('#start').hidden || !$('#viewer').hidden) toast(on ? 'Locations shown' : 'Locations hidden');
+}
+
+/* ------------------------------------------------------------ locations */
+
+// "35.96° N  83.92° W", and the place name once known: Apple's reverse
+// geocoder, asked by the server (rounded to ~1 km, kept on disk), one at a
+// time, never in the key press.
+const PLACES = new Map(); // "lat,lon" (2 decimals) -> name | null
+const placeQueue = [];
+let placeBusy = false;
+const geoKey = (a) => `${a.lat.toFixed(2)},${a.lon.toFixed(2)}`;
+const fmtCoord = (a) => `${Math.abs(a.lat).toFixed(2)}° ${a.lat < 0 ? 'S' : 'N'}  ${Math.abs(a.lon).toFixed(2)}° ${a.lon < 0 ? 'W' : 'E'}`;
+function geoText(a) {
+  const name = PLACES.get(geoKey(a));
+  return name ? `${name} · ${fmtCoord(a)}` : fmtCoord(a);
+}
+function geoLine(a, cls) {
+  const g = el(cls === 'place' ? 'span' : 'div', cls);
+  if (a.lat == null) return g; // no geotag: the line stays empty
+  g.dataset.geo = geoKey(a);
+  g.textContent = geoText(a);
+  g.title = `${a.lat.toFixed(5)}, ${a.lon.toFixed(5)}`;
+  if (!PLACES.has(geoKey(a))) askPlace(a);
+  return g;
+}
+function askPlace(a) {
+  const k = geoKey(a);
+  if (placeQueue.some((x) => x.k === k)) return;
+  placeQueue.unshift({ k, lat: a.lat, lon: a.lon }); // what's on screen now first
+  placeQueue.length = Math.min(placeQueue.length, 40);
+  setTimeout(pumpPlaces, 0);
+}
+async function pumpPlaces() {
+  if (placeBusy || !placeQueue.length) return;
+  placeBusy = true;
+  const { k, lat, lon } = placeQueue.shift();
+  if (!PLACES.has(k)) {
+    const r = await api('GET', `/api/place?lat=${lat}&lon=${lon}`).catch(() => null);
+    PLACES.set(k, (r && r.place) || null);
+    if (r && r.place) {
+      // the coordinates stay after the name
+      document.querySelectorAll(`[data-geo="${k}"]`).forEach((g) => (g.textContent = `${r.place} · ${g.textContent.split(' · ').pop()}`));
+    }
+  }
+  placeBusy = false;
+  pumpPlaces();
+}
+
 function setDaily(on) {
   S.settings.daily = on;
   if (on) S.dailyDay = todayMD(); // a new daily cleanup starts on today
@@ -1174,7 +1246,9 @@ let dispQueue = [];
 let dispScheduled = false;
 
 let layoutCache = null;
-const CAP = 26;
+// a caption line under each photo; a second one with its location when shown
+let CAP = 26;
+const capHeight = () => (CAP = S.settings.geo ? 44 : 26);
 function stageSize() {
   if (!layoutCache) {
     const st = $('#stage');
@@ -1188,6 +1262,7 @@ const aspectOf = (a) => (a && a.w && a.h ? a.w / a.h : 1.5);
    shows them biggest: a row, 2 + 1, a near-square grid); more than 9 scroll
    in rows of fixed tiles with the focused photo kept in view. */
 function layoutFor(c) {
+  capHeight();
   const { W, H } = stageSize();
   const gap = 10;
   const n = c.length;
@@ -1447,7 +1522,7 @@ function caption(a, pos) {
     toggleKeep(a.id);
     updateFocusUi();
   };
-  c.append(key, el('span', 'time', fmtTime(a)));
+  c.append(key, el('span', 'time', `${fmtDay(a, false)}  ${fmtTime(a)}`));
   if (a.fav) c.append(el('span', 'fav', '♥'));
   if (a.kind === 'video') c.append(el('span', 'kind', `▶ ${fmtDur(a.dur)}`));
   else if (a.kind === 'live') c.append(el('span', 'kind', 'Live'));
@@ -1483,8 +1558,10 @@ function render() {
       el(
         'div',
         'empty',
-        S.settings.daily
-          ? 'Nothing from this day in earlier years.\nPress D for all dates, or O for dates and filters.'
+        S.settings.videosOnly
+          ? 'No videos here.\nPress V for photos too, or O for dates and filters.'
+          : S.settings.daily
+          ? 'Nothing from this day in earlier years.\nPress T for all dates, or O for dates and filters.'
           : 'No clusters here.\nPress C to show single photos too, ] for a longer window, or O for dates and filters.'
       )
     );
@@ -1537,6 +1614,7 @@ function render() {
     };
     // the caption sits right under its photo, whatever the photo's shape
     box.append(frame, caption(a, pos));
+    if (S.settings.geo) box.append(geoLine(a, 'geo'));
     look.append(box);
     stage.append(look);
     let sharp = false;
@@ -1784,6 +1862,7 @@ function renderSoloCaption() {
     cap.append(keys);
   }
   cap.append(el('span', 'time', `${fmtDay(a)}  ${fmtTime(a)}`));
+  if (S.settings.geo && a.lat != null) cap.append(geoLine(a, 'place'));
   if (a.fav) cap.append(el('span', 'fav', '♥'));
   if (a.kind === 'video') cap.append(el('span', 'kind', `▶ ${fmtDur(a.dur)}`));
   const hint = el('span', 'hint');
@@ -2196,6 +2275,7 @@ const MENU = [
   ]],
   ['Look closely', [
     { id: 'large', label: 'Large view', key: 'Space', press: { key: ' ' }, when: inViewer, on: () => !!S.solo },
+    { id: 'geo', label: 'Locations', key: 'G', press: { key: 'g' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.geo },
     { id: 'zoom', label: 'Actual pixels', key: 'Z', press: { key: 'z' }, when: () => !!S.solo, on: () => !!(S.solo && S.solo.zoom) },
     { id: 'fullscreen', label: 'Full screen', key: 'F', press: { key: 'f' }, on: () => isFullscreen() },
   ]],
@@ -2203,6 +2283,7 @@ const MENU = [
     { id: 'longer', label: 'Longer window', key: ']', press: { key: ']' }, when: () => authorized() && $('#review').hidden },
     { id: 'shorter', label: 'Shorter window', key: '[', press: { key: '[' }, when: () => authorized() && $('#review').hidden },
     { id: 'clustersonly', label: 'Clusters only', key: 'C', press: { key: 'c' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.clustersOnly },
+    { id: 'videosonly', label: 'Videos only', key: 'V', press: { key: 'v' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.videosOnly },
     { id: 'daily', label: 'Daily cleanup (on this day)', key: 'T', press: { key: 't' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.daily },
     { id: 'start', label: 'Dates and filters…', key: 'O', press: { key: 'o' }, when: inViewerAny },
   ]],
@@ -2352,6 +2433,14 @@ function onKey(e) {
     }
     if (lower === 'c') {
       setClustersOnly(!S.settings.clustersOnly);
+      return e.preventDefault();
+    }
+    if (lower === 'v') {
+      setVideosOnly(!S.settings.videosOnly);
+      return e.preventDefault();
+    }
+    if (lower === 'g') {
+      setGeo(!S.settings.geo);
       return e.preventDefault();
     }
     if (lower === 't') {

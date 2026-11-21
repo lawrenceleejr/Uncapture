@@ -17,6 +17,8 @@ pub struct Exif {
     pub height: u32,
     /// the IFD1 thumbnail: (byte offset in the file, length)
     pub thumb: Option<(u64, u64)>,
+    /// GPS latitude and longitude, degrees (south and west negative)
+    pub gps: Option<(f64, f64)>,
 }
 
 pub fn read(path: &Path) -> Option<Exif> {
@@ -89,6 +91,15 @@ impl<'a> Tiff<'a> {
             self.u32(field)
         }
     }
+    /// three rationals (degrees, minutes, seconds) → degrees
+    fn dms(&self, field: usize) -> Option<f64> {
+        let at = self.u32(field) as usize;
+        let r = |k: usize| {
+            let (n, d) = (self.u32(at + k * 8) as f64, self.u32(at + k * 8 + 4) as f64);
+            if d == 0.0 { 0.0 } else { n / d }
+        };
+        (at + 24 <= self.b.len()).then(|| r(0) + r(1) / 60.0 + r(2) / 3600.0)
+    }
     fn ascii(&self, count: u32, field: usize) -> String {
         let at = if count <= 4 { field } else { self.u32(field) as usize };
         let s = self.b.get(at..at + count as usize).unwrap_or(&[]);
@@ -103,10 +114,12 @@ fn tiff(b: &[u8], base: u64, e: &mut Exif) {
     let t = Tiff { b, le: &b[0..2] == b"II" };
     let ifd0 = t.u32(4) as usize;
     let mut exif_at = None;
+    let mut gps_at = None;
     for (tag, typ, count, field) in t.entries(ifd0) {
         match tag {
             0x0112 => e.orientation = t.value(typ, field) as u16,
             0x8769 => exif_at = Some(t.value(typ, field) as usize),
+            0x8825 => gps_at = Some(t.value(typ, field) as usize),
             0x0132 if e.date.is_none() => e.date = Some(t.ascii(count, field)),
             _ => {}
         }
@@ -120,6 +133,23 @@ fn tiff(b: &[u8], base: u64, e: &mut Exif) {
                 0xa002 => e.width = t.value(typ, field),
                 0xa003 => e.height = t.value(typ, field),
                 _ => {}
+            }
+        }
+    }
+    if let Some(at) = gps_at.filter(|&a| a > 0 && a < b.len()) {
+        let (mut lat, mut lon, mut ns, mut ew) = (None, None, 'N', 'E');
+        for (tag, _, count, field) in t.entries(at) {
+            match tag {
+                1 => ns = t.ascii(count, field).chars().next().unwrap_or('N'),
+                2 => lat = t.dms(field),
+                3 => ew = t.ascii(count, field).chars().next().unwrap_or('E'),
+                4 => lon = t.dms(field),
+                _ => {}
+            }
+        }
+        if let (Some(la), Some(lo)) = (lat, lon) {
+            if la != 0.0 || lo != 0.0 {
+                e.gps = Some((if ns == 'S' { -la } else { la }, if ew == 'W' { -lo } else { lo }));
             }
         }
     }

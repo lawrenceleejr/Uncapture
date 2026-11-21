@@ -231,6 +231,10 @@ impl PhotoSource for FakeSource {
                 burst_id: x.get("burst").and_then(|v| v.as_str()).map(String::from),
                 shared: flag("shared"),
                 bytes: md.map(|m| m.len()),
+                location: match (x.get("lat").and_then(|v| v.as_f64()), x.get("lon").and_then(|v| v.as_f64())) {
+                    (Some(la), Some(lo)) => Some((la, lo)),
+                    _ => ex.as_ref().and_then(|e| e.gps),
+                },
             });
             let orientation = ex.as_ref().map(|e| e.orientation).unwrap_or(1);
             files.insert(id, Entry { file: p, thumb: ex.and_then(|e| e.thumb), video, orientation });
@@ -355,6 +359,12 @@ impl PhotoSource for FakeSource {
             }
         }
         fs::write(self.dir.join("fake.json"), serde_json::to_vec_pretty(&m).unwrap()).map_err(|e| e.to_string())
+    }
+
+    // place names from fake.json: "places": { "35.96,-83.92": "Knoxville, Tennessee" }
+    fn place(&self, lat: f64, lon: f64) -> Option<String> {
+        let key = format!("{:.2},{:.2}", lat, lon);
+        self.manifest().get("places")?.get(&key)?.as_str().map(String::from)
     }
 
     // a sharp copy "from iCloud": the resized photo, after the simulated delay

@@ -27,13 +27,16 @@ pub struct Settings {
     pub daily: bool,
     /// iCloud Shared Library photos (off: deleting one removes it for everyone)
     pub include_shared: bool,
+    pub videos_only: bool,
+    /// show where each photo was taken
+    pub geo: bool,
     /// date range, "YYYY-MM-DD", inclusive
     pub from: Option<String>,
     pub to: Option<String>,
 }
 impl Default for Settings {
     fn default() -> Self {
-        Settings { window: cluster::DEFAULT_WINDOW, clusters_only: true, daily: false, include_shared: false, from: None, to: None }
+        Settings { window: cluster::DEFAULT_WINDOW, clusters_only: true, daily: false, include_shared: false, videos_only: false, geo: false, from: None, to: None }
     }
 }
 
@@ -541,7 +544,8 @@ fn state_json(app: &App) -> Value {
     })
 }
 
-/// Every asset, compact: [id, time, tz, kind, width, height, duration, flags].
+/// Every asset, compact: [id, time, tz, kind, width, height, duration, flags
+/// (, latitude, longitude)].
 /// Indices into this list (same `version`) are what /api/library returns.
 fn assets_json(lib: &Lib) -> Vec<u8> {
     let mut s = String::with_capacity(lib.assets.len() * 64 + 64);
@@ -569,7 +573,13 @@ fn assets_json(lib: &Lib) -> Vec<u8> {
             flags |= 8;
         }
         let tz = a.tz.map(|t| t.to_string()).unwrap_or_else(|| "null".into());
-        let _ = write!(s, "[\"{}\",{},{},{},{},{},{},{}]", a.id, a.created, tz, kind, a.width, a.height, (a.duration * 10.0).round() / 10.0, flags);
+        let _ = write!(s, "[\"{}\",{},{},{},{},{},{},{}", a.id, a.created, tz, kind, a.width, a.height, (a.duration * 10.0).round() / 10.0, flags);
+        match a.location {
+            Some((la, lo)) => {
+                let _ = write!(s, ",{:.5},{:.5}]", la, lo);
+            }
+            None => s.push(']'),
+        }
     }
     s.push_str("]}");
     s.into_bytes()
@@ -584,6 +594,7 @@ fn filter_from(params: &HashMap<String, String>, st: &Settings) -> Filter {
     Filter {
         window,
         clusters_only: params.get("clustersOnly").map(|v| v == "1").unwrap_or(st.clusters_only),
+        videos_only: params.get("videosOnly").map(|v| v == "1").unwrap_or(st.videos_only),
         on_this_day: daily.then_some(day),
         from: params.get("from").and_then(|s| parse_day(s)),
         to: params.get("to").and_then(|s| parse_day(s)),
@@ -841,6 +852,26 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 }
                 Err(e) => err(req, 500, &e),
             }
+        }
+        ("/api/place", true, _, _) => {
+            // a place name for a geotag, rounded to ~1 km and kept on disk, so
+            // each spot is asked about once
+            let (Some(lat), Some(lon)) = (params.get("lat").and_then(|v| v.parse::<f64>().ok()), params.get("lon").and_then(|v| v.parse::<f64>().ok())) else {
+                return err(req, 400, "lat and lon");
+            };
+            let key = format!("{:.2},{:.2}", lat, lon);
+            let file = data_dir().join("places.json");
+            let mut cache: serde_json::Map<String, Value> = fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+            if let Some(v) = cache.get(&key) {
+                return send_json(req, 200, json!({ "place": v }));
+            }
+            let (rl, ro): (f64, f64) = (key.split(',').next().unwrap().parse().unwrap_or(lat), key.split(',').nth(1).unwrap().parse().unwrap_or(lon));
+            let place = app.src.place(rl, ro);
+            if let Some(p) = &place {
+                cache.insert(key, json!(p));
+                write_atomic(&file, &serde_json::to_vec(&cache).unwrap_or_default());
+            }
+            send_json(req, 200, json!({ "place": place }))
         }
         ("/api/sharp", _, true, _) => {
             let body = read_json(&mut req);
