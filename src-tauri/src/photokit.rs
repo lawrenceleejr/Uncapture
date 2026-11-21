@@ -82,6 +82,11 @@ impl PhotoKitSource {
 
     /// requestImage, synchronously, encoded as JPEG.
     fn request_image(&self, asset: &PHAsset, size: CGSize, delivery: PHImageRequestOptionsDeliveryMode, network: bool, progress: Option<Progress>, quality: f64) -> Option<Vec<u8>> {
+        self.request_sized(asset, size, delivery, network, progress, quality).map(|(b, _)| b)
+    }
+
+    /// requestImage, synchronously, encoded as JPEG, with its long side in pixels.
+    fn request_sized(&self, asset: &PHAsset, size: CGSize, delivery: PHImageRequestOptionsDeliveryMode, network: bool, progress: Option<Progress>, quality: f64) -> Option<(Vec<u8>, u32)> {
         autoreleasepool(|_| {
             let opts = unsafe { PHImageRequestOptions::new() };
             unsafe {
@@ -97,7 +102,7 @@ impl PhotoKitSource {
             if let Some(b) = &handler_block {
                 unsafe { opts.setProgressHandler(RcBlock::as_ptr(b)) };
             }
-            let slot: Rc<RefCell<Option<Vec<u8>>>> = Rc::new(RefCell::new(None));
+            let slot: Rc<RefCell<Option<(Vec<u8>, u32)>>> = Rc::new(RefCell::new(None));
             let s2 = slot.clone();
             let done = RcBlock::new(move |img: *mut NSImage, _info: *mut NSDictionary| {
                 if let Some(img) = unsafe { img.as_ref() } {
@@ -133,13 +138,14 @@ impl PhotoKitSource {
 }
 
 /// NSImage → JPEG bytes (AppKit's encoder, via a CGImage: no TIFF detour).
-fn jpeg_of(img: &NSImage, quality: f64) -> Option<Vec<u8>> {
+fn jpeg_of(img: &NSImage, quality: f64) -> Option<(Vec<u8>, u32)> {
     let cg = unsafe { img.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None) }?;
+    let long = objc2_core_graphics::CGImage::width(Some(&cg)).max(objc2_core_graphics::CGImage::height(Some(&cg))) as u32;
     let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
     let q = NSNumber::new_f64(quality);
     let props: Retained<NSDictionary<NSString, AnyObject>> = NSDictionary::from_slices(&[unsafe { NSImageCompressionFactor }], &[&*q as &AnyObject]);
     let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::JPEG, &props) }?;
-    Some(data.to_vec())
+    Some((data.to_vec(), long))
 }
 
 fn auth_of(s: PHAuthorizationStatus) -> Auth {
@@ -291,10 +297,22 @@ impl PhotoSource for PhotoKitSource {
         let a = self.one(id)?;
         match px {
             Some(px) => {
-                // a display-size copy: never downloads; the best local rendition
+                // a display-size copy: the best local rendition. If the Mac has
+                // only a small one (Optimize Mac Storage), it would show blurry:
+                // then ask again with iCloud allowed, for this size only.
                 let size = CGSize { width: px as f64, height: px as f64 };
-                self.request_image(&a, size, PHImageRequestOptionsDeliveryMode::HighQualityFormat, false, None, 0.85)
-                    .or_else(|| self.request_image(&a, size, PHImageRequestOptionsDeliveryMode::FastFormat, false, None, 0.85))
+                let local = self
+                    .request_sized(&a, size, PHImageRequestOptionsDeliveryMode::HighQualityFormat, false, None, 0.85)
+                    .or_else(|| self.request_sized(&a, size, PHImageRequestOptionsDeliveryMode::FastFormat, false, None, 0.85));
+                let full = unsafe { a.pixelWidth().max(a.pixelHeight()) } as u32;
+                let enough = (px.min(full.max(1)) as f64 * 0.6) as u32;
+                match local {
+                    Some((b, long)) if long >= enough => Some(b),
+                    small => self
+                        .request_sized(&a, size, PHImageRequestOptionsDeliveryMode::HighQualityFormat, true, None, 0.85)
+                        .map(|(b, _)| b)
+                        .or(small.map(|(b, _)| b)),
+                }
             }
             None => {
                 // actual pixels: the full image, from iCloud if need be

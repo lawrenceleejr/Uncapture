@@ -1330,6 +1330,25 @@ function displayCopy(url, w, h) {
   return d && d.key === dispKey(w, h) ? d.canvas : null;
 }
 
+// The sharpest decoded picture of a photo the page has: the grid's own, the
+// large view's, or the original fetched for actual pixels. Coming back from
+// the large view, the grid shows what you just saw sharp there.
+function sharpestLoaded(id, url) {
+  let best = null;
+  for (const u of [url, soloUrl(id), fullUrl(id)]) {
+    const e = imageCache.get(u);
+    if (e && e.done && e.img.naturalWidth && (!best || e.img.naturalWidth > best.naturalWidth)) best = e.img;
+  }
+  return best;
+}
+// a display copy, unless a sharper picture has arrived since it was made
+function freshCopy(id, url, w, h) {
+  const c = displayCopy(url, w, h);
+  if (!c) return null;
+  const best = sharpestLoaded(id, url);
+  return best && best.naturalWidth > (+c.dataset.srcw || 0) * 1.2 ? null : c;
+}
+
 // What each photo in a cluster needs: its box and the URL at that size.
 function plan(c) {
   const L = layoutFor(c);
@@ -1361,13 +1380,15 @@ function makeDisplayCopy() {
   // never compete with flipping: wait for a quiet moment after the last key
   if (S.flipping || performance.now() - S.lastKeyAt < 300) return scheduleDisplayCopy(300);
   while (dispQueue.length) {
-    const { url, w, h } = dispQueue.shift();
-    const e = imageCache.get(url);
-    if (!e || !e.done || !e.img.naturalWidth || displayCopy(url, w, h)) continue;
+    const { id, url, w, h } = dispQueue.shift();
+    const src = sharpestLoaded(id, url);
+    if (!src || freshCopy(id, url, w, h)) continue;
+    const e = { img: src };
     const cw = Math.max(1, Math.round(w * dpr()));
     const ch = Math.max(1, Math.round(h * dpr()));
     const key = dispKey(w, h);
     const store = (c) => {
+      c.dataset.srcw = src.naturalWidth;
       DISP.set(url, { canvas: c, key });
       while (DISP.size > DISP_MAX) DISP.delete(DISP.keys().next().value);
       if (dispQueue.length) scheduleDisplayCopy();
@@ -1517,17 +1538,19 @@ function sharpened(ids) {
     const id = focusedId();
     const frame = $('#solo-frame');
     if (!ids.has(id) || frame.dataset.level === 'full' || frame.dataset.level === 'video') return;
-    getImage(soloUrl(id), 0.05).promise.then((img) => {
-      if (!S.solo || focusedId() !== id || frame.dataset.id !== id || frame.dataset.level === 'full' || !img.naturalWidth) return;
-      const old = frame.firstElementChild;
-      img.style.width = old ? old.style.width : '';
-      img.style.height = old ? old.style.height : '';
-      img.style.objectFit = 'cover';
-      img.classList.remove('lowres');
-      frame.dataset.level = 'preview';
-      frame.replaceChildren(onScreen(img));
-    });
-    return;
+    if (ids.has(id) && frame.dataset.level !== 'full' && frame.dataset.level !== 'video') {
+      getImage(soloUrl(id), 0.05).promise.then((img) => {
+        if (!S.solo || focusedId() !== id || frame.dataset.id !== id || frame.dataset.level === 'full' || !img.naturalWidth) return;
+        const old = frame.firstElementChild;
+        img.style.width = old ? old.style.width : '';
+        img.style.height = old ? old.style.height : '';
+        img.style.objectFit = 'cover';
+        img.classList.remove('lowres');
+        frame.dataset.level = 'preview';
+        frame.replaceChildren(onScreen(img));
+      });
+    }
+    // (and the grid under it: closing the large view shows it as it is)
   }
   const token = renderToken;
   for (const p of plan(c)) {
@@ -1649,7 +1672,7 @@ function render() {
     if (S.settings.geo) box.append(geoLine(a, 'geo'));
     look.append(box);
     stage.append(look);
-    let sharp = false;
+    let shownW = 0; // the width of the source on screen (0: a thumbnail or nothing)
     const put = (node, low) => {
       if (token !== renderToken || !node) return;
       node.classList.toggle('lowres', !!low);
@@ -1659,20 +1682,27 @@ function render() {
     };
     frame.append(crossSvg());
     if (a.kind === 'video') frame.append(el('span', 'badge', '▶'));
+    // a picture, if it's sharper than what's there (others' elements are copied:
+    // one element can't be in two places)
     const showSharp = (img) => {
-      if (token !== renderToken || !img || !img.naturalWidth) return;
-      sharp = true;
-      put(displayCopy(url, w, h) || img);
+      if (token !== renderToken || !img || !img.naturalWidth || img.naturalWidth <= shownW) return;
+      shownW = img.naturalWidth;
+      const own = imageCache.get(url);
+      put(own && own.img === img ? img : img.cloneNode());
     };
     const showThumb = (timg) => {
-      if (token !== renderToken || sharp || !timg || !timg.naturalWidth) return;
+      if (token !== renderToken || shownW || !timg || !timg.naturalWidth) return;
       put(timg.cloneNode(), true);
     };
-    const copy = a.kind !== 'video' && displayCopy(url, w, h);
+    const copy = a.kind !== 'video' && freshCopy(id, url, w, h);
     if (copy) return put(copy);
-    const ready = thumbReady(id);
-    if (ready) showThumb(ready);
-    else thumbImage(id).then(showThumb);
+    const best = a.kind !== 'video' && sharpestLoaded(id, url);
+    if (best) showSharp(best);
+    else {
+      const ready = thumbReady(id);
+      if (ready) showThumb(ready);
+      else thumbImage(id).then(showThumb);
+    }
     if (a.kind === 'video') return;
     const load = () => {
       const e = getImage(url, L.scroll ? 0.5 + pos * 0.01 : 0.1 + pos * 0.01);
@@ -1864,7 +1894,8 @@ function closeSolo() {
   $('#solo').classList.remove('zoom');
   $('#solo-frame').replaceChildren();
   $('#solo-note').hidden = true;
-  if (S.stageStale) requestAnimationFrame(() => !S.solo && render());
+  // the grid again, with whatever sharper pictures the large view brought
+  requestAnimationFrame(() => !S.solo && !$('#viewer').hidden && render());
 }
 
 function renderSoloCaption() {
