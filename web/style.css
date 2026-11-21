@@ -134,7 +134,7 @@ kbd {
 #stage.scroll { align-content: flex-start; overflow-y: auto; padding: 4px 0 24px; }
 body.fs #stage { top: 12px; bottom: 6px; left: 12px; right: 12px; }
 .look { display: flex; flex-direction: column; align-items: center; min-width: 0; }
-.look .box { display: flex; align-items: center; justify-content: center; width: 100%; }
+.look .box { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; }
 .look .frame { position: relative; cursor: zoom-in; background: #050505; }
 .look .frame > img, .look .frame > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
 .look .frame > .lowres { filter: blur(0.5px); }
@@ -213,12 +213,12 @@ body.fs #peek { display: none; }
 .rgroup { padding: 10px 0 16px; border-bottom: 1px solid var(--hair); }
 .rgroup-head { display: flex; gap: 12px; color: var(--ink); margin-bottom: 8px; }
 .rrow { display: flex; flex-wrap: wrap; gap: 8px; }
-.rtile { position: relative; width: 150px; height: 112px; display: flex; align-items: center; justify-content: center; cursor: pointer; outline-offset: 3px; }
+.rtile { position: relative; width: 150px; height: 112px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .rtile .pic { position: relative; background: #050505; }
 .rtile .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .rtile.keep .pic { box-shadow: 0 0 0 2px var(--accent); }
 .rtile.del .pic img { opacity: .55; }
-.rtile.cursor { outline: 1px solid var(--ink); }
+.rtile.cursor .pic { outline: 1px solid var(--ink); outline-offset: 3px; }
 .rtile .badge { left: 4px; bottom: 3px; }
 .review-empty { color: var(--muted); padding: 40px 0; font-size: 13px; }
 

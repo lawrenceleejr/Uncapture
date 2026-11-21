@@ -952,7 +952,8 @@ function layoutFor(c) {
   const gap = 10;
   const n = c.length;
   const as = c.map((id) => aspectOf(S.byId.get(id))).sort((x, y) => x - y);
-  const a = as[Math.floor(as.length / 2)];
+  const a = as[Math.floor(as.length / 2)]; // the typical shape
+  const tall = as[0]; // the tallest photo
   if (n <= 9) {
     let best = null;
     for (let cols = 1; cols <= n; cols++) {
@@ -962,12 +963,12 @@ function layoutFor(c) {
       const w = Math.min(cellW, cellH * a);
       if (!best || w > best.w * 1.02) best = { cols, w, cellW, cellH };
     }
-    const tileW = Math.floor(Math.min(best.cellW, best.cellH * Math.max(a, 1.5)));
-    return { cols: best.cols, tileW, boxH: Math.floor(Math.min(best.cellH, tileW / Math.min(a, 1))), scroll: false };
+    const tileW = Math.floor(best.w);
+    return { cols: best.cols, tileW, boxH: Math.floor(Math.min(best.cellH, tileW / tall)), scroll: false };
   }
   const cols = clamp(Math.floor((W + gap) / (230 + gap)), 4, 8);
   const tileW = Math.floor((W - (cols - 1) * gap) / cols);
-  return { cols, tileW, boxH: Math.floor(Math.min(tileW / a, H * 0.6)), scroll: true };
+  return { cols, tileW, boxH: Math.floor(Math.min(tileW / tall, H * 0.6)), scroll: true };
 }
 
 function frameSize(a, L) {
@@ -1189,7 +1190,7 @@ function render() {
     if (d.has(id)) look.classList.add('del');
     if (pos === S.focus) look.classList.add('focus');
     const box = el('div', 'box');
-    box.style.height = `${L.boxH}px`;
+    box.style.height = `${L.boxH + CAP}px`;
     const frame = el('div', 'frame');
     frame.style.width = `${w}px`;
     frame.style.height = `${h}px`;
@@ -1199,8 +1200,9 @@ function render() {
       updateFocusUi();
       openSolo();
     };
-    box.append(frame);
-    look.append(box, caption(a, pos));
+    // the caption sits right under its photo, whatever the photo's shape
+    box.append(frame, caption(a, pos));
+    look.append(box);
     stage.append(look);
     let sharp = false;
     const put = (node, low) => {
