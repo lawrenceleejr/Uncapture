@@ -88,9 +88,10 @@ shows the three steps:
 1. Drag Uncapture to Applications.
 2. Open it. The app isn't signed with an Apple Developer ID, so the first
    time macOS blocks it; click Done.
-3. Open the **Open Privacy & Security** shortcut in the same window, click
-   **Open Anyway** next to Uncapture (near the bottom, under Security), and
-   confirm. That's needed once per version.
+3. Open the **Privacy & Security** link in the same window (or System
+   Settings → Privacy & Security), click **Open Anyway** next to Uncapture
+   (near the bottom, under Security), and confirm. That's needed once per
+   version.
 
 Uncapture asks for access to Photos when I press the button on its first
 screen. **macOS asks again after each update**: the permission belongs to the

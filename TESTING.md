@@ -13,10 +13,11 @@ first section before relying on it.
 Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
 
 - [ ] **The .dmg window** shows the three steps on its background, Uncapture
-      and the Applications link side by side, and the "Open Privacy &
+      and the Applications link side by side, and the "Privacy &
       Security" shortcut below, all labels readable and nothing cut off.
 - [ ] **Blocked, then allowed.** After dragging to Applications, opening
-      Uncapture is blocked. The shortcut opens System Settings at Privacy &
+      Uncapture is blocked. Double-clicking "Privacy & Security" in the .dmg
+      opens System Settings at Privacy &
       Security, where "Open Anyway" is listed for Uncapture. If the shortcut
       opens the wrong page (or nothing), note the macOS version: ______
 

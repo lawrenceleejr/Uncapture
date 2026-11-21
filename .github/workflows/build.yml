@@ -101,13 +101,16 @@ jobs:
           plist="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Uncapture.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryUsageDescription' "$plist"
           codesign -d --entitlements - "src-tauri/target/${{ matrix.target }}/release/bundle/macos/Uncapture.app" 2>&1 | grep -q photos-library
-      - name: Make the .dmg (first-run steps on its background, a shortcut to Privacy & Security)
+      - name: Make the .dmg (first-run steps on its background, a link to Privacy & Security)
         # fixed names, so links to releases/latest/download/<name> always work.
         # create-dmg lays out the window through Finder, which can be slow to
         # answer on a fresh runner: retry
         shell: bash
         run: |
           brew install create-dmg
+          # the settings pane the .dmg links to must be there on a current macOS
+          sw_vers
+          test -d /System/Library/PreferencePanes/Security.prefPane
           for attempt in 1 2 3; do
             scripts/make-dmg.sh ${{ matrix.target }} "dist/${{ matrix.asset }}" && exit 0
             echo "dmg attempt $attempt failed; retrying in 10 s"
@@ -121,8 +124,10 @@ jobs:
           hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "dist/${{ matrix.asset }}"
           ls -la "$mnt"
           test -d "$mnt/Uncapture.app" && test -L "$mnt/Applications"
-          test -f "$mnt/Open Privacy & Security.webloc" && test -f "$mnt/.background/background.tiff"
-          grep -q 'x-apple.systempreferences' "$mnt/Open Privacy & Security.webloc"
+          test -f "$mnt/.background/background.tiff"
+          test -L "$mnt/Privacy & Security"
+          test "$(readlink "$mnt/Privacy & Security")" = /System/Library/PreferencePanes/Security.prefPane
+          test -d "$mnt/Privacy & Security/"
           hdiutil detach "$mnt"
       - uses: actions/upload-artifact@v4
         with:

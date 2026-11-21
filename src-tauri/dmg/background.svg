@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="660" height="540" viewBox="0 0 660 540">
   <!-- The .dmg window. Finder draws the icons and their labels on top:
        Uncapture at (180, 170), Applications at (480, 170),
-       "Open Privacy & Security" at (330, 430). -->
+       "Privacy & Security" (a link to that settings pane) at (330, 430). -->
   <style>
     text { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; fill: #1b1a18; }
     .mark { font-size: 10.5px; letter-spacing: .16em; fill: #8a867e; }
@@ -28,5 +28,5 @@
   <!-- 3 -->
   <circle cx="44" cy="350" r="9" fill="#1b1a18"/><text x="44" y="354" class="n" text-anchor="middle">3</text>
   <text x="61" y="355" class="step">Open Privacy &amp; Security below, then click Open Anyway.</text>
-  <text x="61" y="375" class="note">It's near the bottom, under Security. Confirm, and Uncapture opens. Only needed once.</text>
+  <text x="61" y="375" class="note">Near the bottom, under Security (also in System Settings). Confirm, and it opens.</text>
 </svg>

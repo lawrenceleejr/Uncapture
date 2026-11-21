@@ -21,7 +21,9 @@ npm run dist           # the .app, then the .dmg via scripts/make-dmg.sh (macOS,
 
 The .dmg's background (`src-tauri/dmg/background.svg`, rendered to
 `background.png` and `@2x`) shows the first-run steps; icon positions in it
-must match `scripts/make-dmg.sh`.
+must match `scripts/make-dmg.sh`. Its "Privacy & Security" item is a symlink to
+`/System/Library/PreferencePanes/Security.prefPane` (a `.webloc` with a
+settings URL didn't open).
 
 Re-clustering speed (100,000 assets under 100 ms) is asserted only in a
 release build: `cargo test --release --no-default-features`.

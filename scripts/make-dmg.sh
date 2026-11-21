@@ -1,8 +1,10 @@
 #!/bin/bash
 # The .dmg, with a background that walks through the first run (drag to
-# Applications, open, then Open Anyway in Privacy & Security) and a shortcut
-# to that settings page. Tauri's own .dmg can't hold the extra shortcut, so
-# this uses create-dmg (brew install create-dmg) on the .app Tauri built.
+# Applications, open, then Open Anyway in Privacy & Security) and a link to
+# that settings pane: a link to the pane itself, which Finder opens in System
+# Settings (a .webloc with a settings URL went to the browser, which won't).
+# Tauri's own .dmg can't hold the extra link, so this uses create-dmg
+# (brew install create-dmg) on the .app Tauri built.
 #
 #   scripts/make-dmg.sh [target] [out.dmg]     (macOS only)
 #   e.g. scripts/make-dmg.sh aarch64-apple-darwin dist/Uncapture.dmg
@@ -18,6 +20,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir "$work/src"
 cp -R "$app" "$work/src/"
+ln -s /System/Library/PreferencePanes/Security.prefPane "$work/src/Privacy & Security"
 # one background for normal and Retina screens
 tiffutil -cathidpicheck src-tauri/dmg/background.png src-tauri/dmg/background@2x.png -out "$work/background.tiff"
 
@@ -34,7 +37,6 @@ create-dmg \
   --icon "Uncapture.app" 180 170 \
   --hide-extension "Uncapture.app" \
   --app-drop-link 480 170 \
-  --add-file "Open Privacy & Security.webloc" src-tauri/dmg/settings.webloc 330 430 \
-  --hide-extension "Open Privacy & Security.webloc" \
+  --icon "Privacy & Security" 330 430 \
   "$out" "$work/src"
 echo "  $out"
