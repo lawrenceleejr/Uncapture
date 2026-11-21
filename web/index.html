@@ -49,7 +49,7 @@
         <span class="start-head-actions"><button id="start-return" class="link" title="Back to the clusters (Esc)" hidden>Back to the clusters <kbd>Esc</kbd></button></span>
       </div>
       <p class="lede">Photos taken close together, side by side. Keep the best; the rest are deleted from Photos.</p>
-      <p class="keyline"><kbd>←</kbd><kbd>→</kbd> flip <kbd>1</kbd>–<kbd>9</kbd> keep <kbd>Space</kbd> look closely <kbd>R</kbd> review <kbd>?</kbd> every key</p>
+      <p class="keyline"><kbd>←</kbd><kbd>→</kbd> clusters <kbd>j</kbd><kbd>k</kbd> photos <kbd>1</kbd>–<kbd>9</kbd> keep <kbd>D</kbd> delete <kbd>S</kbd> ♥ <kbd>Space</kbd> look closely <kbd>R</kbd> review <kbd>?</kbd> every key</p>
 
       <div class="start-row" id="chart-row">
         <div class="start-label">
@@ -59,6 +59,16 @@
         <svg id="chart" preserveAspectRatio="none"></svg>
       </div>
 
+      <!-- daily cleanup: which day of the year, and when each was last cleaned up -->
+      <div class="start-row" id="cal-row" hidden>
+        <div class="start-label">
+          Day to clean up <span class="muted">— <kbd>←</kbd><kbd>→</kbd> a day, <kbd>↑</kbd><kbd>↓</kbd> a month, <kbd>Home</kbd> today</span>
+          <span class="cal-legend muted"><i class="sw s1"></i>cleaned up this month <i class="sw s2"></i>this year <i class="sw s3"></i>before <i class="sw s0"></i>not yet <i class="sw dot"></i>no photos</span>
+        </div>
+        <svg id="cal"></svg>
+        <div id="cal-day"></div>
+      </div>
+
       <div class="start-row">
         <div class="start-label">Cluster window <span class="muted">— photos this close together are one cluster <kbd>[</kbd><kbd>]</kbd></span></div>
         <div id="windows" class="steps"></div>
@@ -66,7 +76,7 @@
 
       <div class="start-row options">
         <label class="opt" title="Hide photos that have no others near them (C)"><input type="checkbox" id="opt-clusters"> Clusters only <kbd>C</kbd></label>
-        <label class="opt" title="Only photos taken on this day in earlier years (D)"><input type="checkbox" id="opt-daily"> Daily cleanup: on this day in earlier years <kbd>D</kbd></label>
+        <label class="opt" title="Only photos taken on one day of the year, in earlier years (T)"><input type="checkbox" id="opt-daily"> Daily cleanup: on this day in earlier years <kbd>T</kbd></label>
         <span id="daily-status" class="muted"></span>
       </div>
 

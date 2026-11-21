@@ -350,6 +350,31 @@ impl PhotoSource for FakeSource {
         });
     }
 
+    // the heart lives in fake.json, as Photos keeps it in its library
+    fn set_favorite(&self, ids: &[AssetId], on: bool) -> Result<(), String> {
+        let rels: Vec<String> = {
+            let files = self.files.read().unwrap();
+            ids.iter().filter_map(|id| files.get(id)).map(|e| self.rel(&e.file)).collect()
+        };
+        if rels.len() != ids.len() {
+            return Err("not in the library".into());
+        }
+        let mut m = self.manifest();
+        if !m.is_object() {
+            m = serde_json::json!({});
+        }
+        let files = m.as_object_mut().unwrap().entry("files").or_insert_with(|| serde_json::json!({}));
+        for r in rels {
+            let e = files.as_object_mut().ok_or("bad fake.json")?.entry(r).or_insert_with(|| serde_json::json!({}));
+            if let Some(o) = e.as_object_mut() {
+                o.insert("favorite".into(), Value::Bool(on));
+            } else {
+                *e = serde_json::json!({ "favorite": on });
+            }
+        }
+        fs::write(self.dir.join("fake.json"), serde_json::to_vec_pretty(&m).unwrap()).map_err(|e| e.to_string())
+    }
+
     fn bytes(&self, ids: &[AssetId]) -> Vec<Option<u64>> {
         let files = self.files.read().unwrap();
         ids.iter().map(|id| files.get(id).and_then(|e| fs::metadata(&e.file).ok()).map(|m| m.len())).collect()

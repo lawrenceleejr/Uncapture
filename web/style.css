@@ -108,6 +108,23 @@ kbd {
 #chart .peak { fill: var(--muted); }
 #chart.off .bar.on { fill: var(--faint); }
 #chart.off .band { display: none; }
+/* the calendar of days of the year: ink by how recently each was cleaned up */
+#cal { width: 100%; display: block; cursor: pointer; overflow: visible; }
+#cal text { font: 10.5px var(--font); font-feature-settings: "tnum" 1; fill: var(--muted); }
+#cal .c { fill: var(--ink); }
+#cal .todo { fill: none; stroke: var(--faint); stroke-width: 1; }
+#cal .none { fill: var(--faint); }
+#cal .sel { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+#cal .today { fill: var(--ink); }
+#cal-day { margin-top: 10px; min-height: 2.8em; line-height: 1.6; }
+#cal-day b { font-weight: 400; color: var(--ink); }
+#cal-day .muted b { color: var(--muted); }
+.cal-legend { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 11px; }
+.cal-legend .sw { display: inline-block; width: 9px; height: 9px; margin-left: 8px; background: var(--ink); }
+.cal-legend .s1 { opacity: 1; } .cal-legend .s2 { opacity: .55; } .cal-legend .s3 { opacity: .25; }
+.cal-legend .s0 { background: none; box-shadow: inset 0 0 0 1px var(--faint); }
+.cal-legend .dot { width: 3px; height: 3px; background: var(--faint); margin: 0 3px 0 11px; }
+
 /* the window steps: a log scale, the current one in ink */
 .steps { display: flex; gap: 0; align-items: baseline; border-bottom: 1px solid var(--hair); }
 .steps button { flex: 1; text-align: left; color: var(--muted); padding: 2px 0 6px; position: relative; }

@@ -41,6 +41,7 @@ const S = {
   settings: { window: 60, clustersOnly: true, daily: false, from: null, to: null },
   toDelete: 0,
   solo: null, // {zoom}
+  dailyDay: null, // the day of the year for daily cleanup, "MM-DD" (today by default)
   flipping: false,
   lastKeyAt: 0,
 };
@@ -176,10 +177,12 @@ function updateWhere() {
   const w = $('#where');
   if ($('#viewer').hidden) return (w.textContent = '');
   if (S.settings.daily) {
-    // "On this day: 2019 · 2021 · 2023 (14 clusters)"
+    // "On this day: 2019 · 2021 · 2023 (14 clusters) · last cleaned up 12 Nov 2026"
     const ys = S.years.map(([y]) => y).join(' · ');
     w.innerHTML = '';
-    w.append('On this day: ', el('b', '', ys || 'nothing'), ` (${fmtN(S.clusters.length)} cluster${S.clusters.length === 1 ? '' : 's'})`);
+    w.append(`${dayName(dailyDay())}: `, el('b', '', ys || 'nothing'), ` (${fmtN(S.clusters.length)} cluster${S.clusters.length === 1 ? '' : 's'})`);
+    const last = (S.server.dailyLog[dailyDay()] || []).at(-1);
+    if (last) w.append(` · last cleaned up ${niceDay(last.date)}`);
   } else w.textContent = rangeLabel();
 }
 
@@ -219,7 +222,15 @@ function showStart() {
   renderDaily();
   ST.bins = chartBins();
   drawChart();
+  showDailyRows();
   refreshStart();
+}
+
+// Daily cleanup shows the calendar of days in place of the chart of dates.
+function showDailyRows() {
+  $('#chart-row').hidden = S.settings.daily;
+  $('#cal-row').hidden = !S.settings.daily;
+  if (S.settings.daily) drawCalendar();
 }
 
 function renderDaily() {
@@ -243,6 +254,7 @@ function renderWindows() {
 function libraryUrl() {
   const s = S.settings;
   const q = new URLSearchParams({ window: s.window, clustersOnly: s.clustersOnly ? 1 : 0, onThisDay: s.daily ? 1 : 0 });
+  if (s.daily) q.set('day', dailyDay());
   if (!s.daily && s.from) q.set('from', s.from);
   if (!s.daily && s.to) q.set('to', s.to);
   return '/api/library?' + q;
@@ -262,8 +274,8 @@ function refreshStart() {
     $('#big-n').textContent = `${fmtN(n)} cluster${n === 1 ? '' : 's'} · ${fmtN(lib.photos)} photo${lib.photos === 1 ? '' : 's'}`;
     const where = S.settings.daily
       ? lib.years.length
-        ? `On this day: ${lib.years.map(([y]) => y).join(' · ')}`
-        : 'Nothing from this day in earlier years'
+        ? `${dayName(dailyDay())}: ${lib.years.map(([y]) => y).join(' · ')}`
+        : `Nothing from ${dailyDay() === todayMD() ? 'this day' : dayName(dailyDay())} in earlier years`
       : rangeLabel();
     $('#big-sub').textContent = `${where} · of ${fmtN(S.assets.length)} in the library`;
     $('#start-open').disabled = n === 0;
@@ -480,6 +492,11 @@ function bindStart() {
     const b = e.target.closest('button');
     if (b && b.dataset.q) quickRange(b.dataset.q);
   };
+  $('#cal').addEventListener('click', (e) => setDailyDay(calDayAt(e)));
+  $('#cal').addEventListener('dblclick', (e) => {
+    setDailyDay(calDayAt(e));
+    openViewer();
+  });
   $('#opt-clusters').onchange = (e) => setClustersOnly(e.target.checked);
   $('#opt-daily').onchange = (e) => setDaily(e.target.checked);
   $('#start-open').onclick = () => openViewer();
@@ -513,12 +530,152 @@ function setClustersOnly(on) {
 }
 function setDaily(on) {
   S.settings.daily = on;
+  if (on) S.dailyDay = todayMD(); // a new daily cleanup starts on today
   $('#opt-daily').checked = on;
   saveSettings();
   if (!$('#start').hidden) {
     drawChart();
+    showDailyRows();
     refreshStart();
   } else recluster(on ? 'Daily cleanup: on this day' : 'All dates');
+}
+
+/* ------------------------------------------------------------ daily cleanup: the calendar */
+
+const todayMD = () => S.server.today.slice(5);
+const dailyDay = () => S.dailyDay || todayMD();
+const FULL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const dayName = (md) => (md === todayMD() ? 'On this day' : `${+md.slice(3)} ${FULL_MONTHS[+md.slice(0, 2) - 1]}`);
+// every day of the year, 29 February included
+const DOY = (() => {
+  const out = [];
+  for (let t = Date.UTC(2024, 0, 1); t < Date.UTC(2025, 0, 1); t += 864e5) out.push(new Date(t).toISOString().slice(5, 10));
+  return out;
+})();
+const monthLen = (m) => DOY.filter((d) => +d.slice(0, 2) === m).length;
+
+// photos per day of the year, from earlier years
+function doyCounts() {
+  const year = +S.server.today.slice(0, 4);
+  if (ST.doy && ST.doyVersion === S.version && ST.doyYear === year) return ST.doy;
+  const m = new Map();
+  for (const a of S.assets) {
+    if (+a.day.slice(0, 4) >= year) continue;
+    const md = a.day.slice(5);
+    const e = m.get(md) || { n: 0, years: new Set() };
+    e.n++;
+    e.years.add(+a.day.slice(0, 4));
+    m.set(md, e);
+  }
+  ST.doy = m;
+  ST.doyVersion = S.version;
+  ST.doyYear = year;
+  return m;
+}
+
+// how recently a day was cleaned up, as an ink level (null: never)
+function recency(md) {
+  const last = (S.server.dailyLog[md] || []).at(-1);
+  if (!last) return null;
+  const age = (Date.parse(S.server.today) - Date.parse(last.date)) / 864e5;
+  return age <= 31 ? 1 : age <= 365 ? 0.55 : 0.25;
+}
+
+/* Twelve rows of months, 31 columns of days: a small multiple of the year.
+   Ink shows how recently each day was cleaned up; a hairline square, a day
+   with photos not cleaned up yet; a dot, a day without photos. */
+function drawCalendar() {
+  const svg = $('#cal');
+  const W = svg.clientWidth || 880;
+  const left = 30;
+  const top = 14;
+  const cw = (W - left) / 31;
+  const rh = 17;
+  const H = top + 12 * rh;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.height = `${H}px`;
+  svg.innerHTML = '';
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs, text) => {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    svg.append(e);
+    return e;
+  };
+  ST.cal = { left, top, cw, rh };
+  for (const d of [1, 10, 20, 31]) mk('text', { x: left + (d - 0.5) * cw, y: 9, 'text-anchor': 'middle' }, d);
+  const counts = doyCounts();
+  const sel = dailyDay();
+  const today = todayMD();
+  for (let m = 1; m <= 12; m++) {
+    const y = top + (m - 1) * rh;
+    mk('text', { x: 0, y: y + 10.5 }, MONTHS[m - 1]);
+    for (let d = 1; d <= monthLen(m); d++) {
+      const md = `${z2(m)}-${z2(d)}`;
+      const x = left + (d - 1) * cw;
+      const w = Math.max(3, cw - 3);
+      const c = counts.get(md);
+      const r = recency(md);
+      let cell;
+      if (r != null) cell = mk('rect', { x: x + 1, y: y + 1, width: w, height: rh - 5, class: 'c', opacity: r });
+      else if (c) cell = mk('rect', { x: x + 1.5, y: y + 1.5, width: w - 1, height: rh - 6, class: 'todo' });
+      else cell = mk('rect', { x: x + 1 + w / 2 - 1, y: y + (rh - 4) / 2 - 1, width: 2, height: 2, class: 'none' });
+      const log = S.server.dailyLog[md] || [];
+      const tip = [`${+d} ${MONTHS[m - 1]}`, c ? `${fmtN(c.n)} photo${c.n === 1 ? '' : 's'} from ${[...c.years].sort().join(' · ')}` : 'no photos from earlier years'];
+      if (log.length) tip.push(`cleaned up ${niceDay(log.at(-1).date)} (${log.at(-1).deleted} deleted)`);
+      cell.append(Object.assign(document.createElementNS(NS, 'title'), { textContent: tip.join(' · ') }));
+      if (md === today) mk('rect', { x: x + 1, y: y + rh - 3, width: w, height: 1.5, class: 'today' });
+      if (md === sel) mk('rect', { x: x - 0.5, y: y - 0.5, width: w + 3, height: rh - 2, class: 'sel' });
+    }
+  }
+  renderCalDay();
+}
+
+// the chosen day: its photos and every time it was cleaned up, newest first
+function renderCalDay() {
+  const md = dailyDay();
+  const c = doyCounts().get(md);
+  const log = (S.server.dailyLog[md] || []).slice().reverse();
+  const box = $('#cal-day');
+  box.replaceChildren();
+  const head = el('div');
+  head.append(el('b', '', `${+md.slice(3)} ${FULL_MONTHS[+md.slice(0, 2) - 1]}${md === todayMD() ? ' (today)' : ''}`), c ? ` · ${fmtN(c.n)} photo${c.n === 1 ? '' : 's'} from ${[...c.years].sort().join(' · ')}` : ' · no photos from earlier years');
+  const hist = el('div', 'muted');
+  if (log.length) {
+    hist.append('Cleaned up ');
+    log.forEach((e, i) => {
+      if (i) hist.append(' · ');
+      hist.append(el('b', '', niceDay(e.date)), ` (${fmtN(e.deleted)} deleted)`);
+    });
+  } else hist.textContent = 'Not cleaned up yet.';
+  box.append(head, hist);
+}
+
+function setDailyDay(md) {
+  if (!md || md === S.dailyDay) return;
+  S.dailyDay = md;
+  drawCalendar();
+  refreshStart();
+}
+function stepDailyDay(days) {
+  const i = DOY.indexOf(dailyDay());
+  setDailyDay(DOY[(i + days + DOY.length) % DOY.length]);
+}
+function stepDailyMonth(dm) {
+  const md = dailyDay();
+  const m = ((+md.slice(0, 2) - 1 + dm + 12) % 12) + 1;
+  setDailyDay(`${z2(m)}-${z2(Math.min(+md.slice(3), monthLen(m)))}`);
+}
+function calDayAt(e) {
+  const g = ST.cal;
+  if (!g) return null;
+  const r = $('#cal').getBoundingClientRect();
+  const x = ((e.clientX - r.left) / r.width) * ($('#cal').viewBox.baseVal.width || r.width);
+  const m = Math.floor((e.clientY - r.top - g.top) / g.rh) + 1;
+  const d = Math.floor((x - g.left) / g.cw) + 1;
+  if (m < 1 || m > 12 || d < 1 || d > monthLen(m)) return null;
+  return `${z2(m)}-${z2(d)}`;
 }
 
 /* ------------------------------------------------------------ viewer: clusters */
@@ -646,6 +803,61 @@ function toggleDel(id) {
     }
   });
   if (a && a.fav && S.del.has(id)) toast('♥ A favorite, marked for deletion. X again keeps it.', { ms: 3200 });
+}
+
+// S: the heart in Photos, written to the library at once. A favorite is
+// never marked for deletion by a keeper, so this also takes it off the list.
+async function toggleFavorite() {
+  const id = focusedId();
+  const a = S.byId.get(id);
+  const c = cur();
+  if (!a || !c) return;
+  const on = !a.fav;
+  const before = delOf(c).size;
+  a.fav = on;
+  S.toDelete += delOf(c).size - before;
+  refreshCaptions();
+  const r = await api('POST', '/api/favorite', { ids: [id], on }).catch((e) => ({ error: e.message }));
+  if (r.error) {
+    a.fav = !on;
+    S.toDelete -= delOf(c).size - before;
+    refreshCaptions();
+    return toast(`Photos didn't change the favorite: ${r.error}`, { ms: 3500 });
+  }
+  S.toDelete = r.toDelete;
+  updateDeleteCount();
+  toast(on ? '♥ Favorite, in Photos too' : 'No longer a favorite');
+}
+function refreshCaptions() {
+  updateDeleteCount();
+  TL.version++;
+  if (S.solo) renderSoloCaption();
+  const c = cur();
+  if (!c) return;
+  document.querySelectorAll('#stage .look').forEach((look, pos) => {
+    const cap = look.querySelector('.caption');
+    if (cap) cap.replaceWith(caption(S.byId.get(look.dataset.id), pos));
+  });
+  updateMarksUi();
+}
+
+// j / k: photo by photo, on into the next (or previous) cluster at the ends
+function stepPhoto(d) {
+  const c = cur();
+  if (!c) return;
+  const f = S.focus + d;
+  S.lastKeyAt = performance.now();
+  if (f >= 0 && f < c.length) {
+    S.focus = f;
+    return updateFocusUi();
+  }
+  const next = S.idx + d;
+  if (next < 0 || next >= S.clusters.length) return;
+  S.idx = next;
+  S.focus = d > 0 ? 0 : S.clusters[next].length - 1;
+  if (S.solo) S.solo.zoom = false;
+  if (!S.flipping && !renderPending) render();
+  else scheduleRender();
 }
 
 let marksTimer = 0;
@@ -1268,7 +1480,7 @@ function render() {
   });
   if (L.scroll) scrollFocusIntoView();
   drawTicks();
-  if (S.settings.daily && S.idx === S.clusters.length - 1) dailyDone();
+  if (S.settings.daily && dailyDay() === todayMD() && S.idx === S.clusters.length - 1) dailyDone();
 }
 
 function metaLine(c) {
@@ -1479,7 +1691,7 @@ function renderSoloCaption() {
   if (a.fav) cap.append(el('span', 'fav', '♥'));
   if (a.kind === 'video') cap.append(el('span', 'kind', `▶ ${fmtDur(a.dur)}`));
   const hint = el('span', 'hint');
-  hint.innerHTML = `${S.keep.has(id) ? 'kept' : d.has(id) ? 'to delete' : ''} &nbsp;<kbd>↵</kbd> keep <kbd>Z</kbd> actual pixels <kbd>Space</kbd> back`;
+  hint.innerHTML = `${S.keep.has(id) ? 'kept' : d.has(id) ? 'to delete' : ''} &nbsp;<kbd>j</kbd><kbd>k</kbd> photos <kbd>↵</kbd> keep <kbd>D</kbd> delete <kbd>S</kbd> ♥ <kbd>Z</kbd> actual pixels <kbd>Space</kbd> back`;
   cap.append(hint);
 }
 
@@ -1800,7 +2012,7 @@ async function doDelete() {
   const res = $('#review-result');
   res.classList.remove('done');
   res.textContent = `Waiting for macOS to confirm deleting ${fmtN(ids.length)}…`;
-  const r = await api('POST', '/api/delete', { ids, window: S.settings.window }).catch((e) => ({ error: e.message, deleted: 0 }));
+  const r = await api('POST', '/api/delete', { ids, window: S.settings.window, day: S.settings.daily ? dailyDay() : undefined }).catch((e) => ({ error: e.message, deleted: 0 }));
   RV.busy = false;
   let msg;
   if (r.cancelled) msg = 'Nothing was deleted: the confirmation was cancelled.';
@@ -1877,11 +2089,14 @@ const MENU = [
     { id: 'first', label: 'First cluster', key: 'Home', press: { key: 'Home' }, when: inViewer },
     { id: 'last', label: 'Last cluster', key: 'End', press: { key: 'End' }, when: inViewer },
     { id: 'nextopen', label: 'Next cluster without a keeper', key: 'U', press: { key: 'u' }, when: inViewer },
+    { id: 'nextphoto', label: 'Next photo', key: 'J', press: { key: 'j' }, when: inViewer },
+    { id: 'prevphoto', label: 'Previous photo', key: 'K', press: { key: 'k' }, when: inViewer },
     { id: 'focus', label: 'Next photo in the cluster', key: 'Tab', press: { key: 'Tab' }, when: inViewer },
     { id: 'keep', label: 'Keep photo', key: '↵  or 1–9', press: { key: 'Enter' }, when: inViewer, on: () => S.keep.has(focusedId()) },
     { id: 'keepall', label: 'Keep all in the cluster', key: 'A', press: { key: 'a' }, when: inViewer },
     { id: 'clear', label: "Clear the cluster's marks", key: '0', press: { key: '0', code: 'Digit0' }, when: inViewer },
-    { id: 'mark', label: 'Mark photo for deletion', key: 'X', press: { key: 'x' }, when: inViewer, on: () => S.del.has(focusedId()) },
+    { id: 'mark', label: 'Mark photo for deletion', key: 'D  or X', press: { key: 'd' }, when: inViewer, on: () => S.del.has(focusedId()) },
+    { id: 'favorite', label: 'Favorite in Photos (♥)', key: 'S', press: { key: 's' }, when: inViewer, on: () => !!S.byId.get(focusedId())?.fav },
   ]],
   ['Look closely', [
     { id: 'large', label: 'Large view', key: 'Space', press: { key: ' ' }, when: inViewer, on: () => !!S.solo },
@@ -1892,7 +2107,7 @@ const MENU = [
     { id: 'longer', label: 'Longer window', key: ']', press: { key: ']' }, when: () => authorized() && $('#review').hidden },
     { id: 'shorter', label: 'Shorter window', key: '[', press: { key: '[' }, when: () => authorized() && $('#review').hidden },
     { id: 'clustersonly', label: 'Clusters only', key: 'C', press: { key: 'c' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.clustersOnly },
-    { id: 'daily', label: 'Daily cleanup (on this day)', key: 'D', press: { key: 'd' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.daily },
+    { id: 'daily', label: 'Daily cleanup (on this day)', key: 'T', press: { key: 't' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.daily },
     { id: 'start', label: 'Dates and filters…', key: 'O', press: { key: 'o' }, when: inViewerAny },
   ]],
   ['Review and delete', [
@@ -1948,12 +2163,12 @@ function closeMenu() {
 // The ? sheet: built from MENU, plus the keys that aren't menu items.
 function buildHelp() {
   const extra = {
-    'Flip and keep': [['← →  ↑ ↓  k j', 'previous / next cluster'], ['1 – 9', 'keep that photo (again: undo)'], ['⇧ Tab', 'previous photo']],
-    'Look closely': [['1 – 9  Tab', 'switch photo in the large view'], ['Esc  Space', 'back from the large view'], ['click · double-click', 'back · actual pixels']],
-    'Clusters and filters': [['on the start screen', ''], ['← →  ⇧', 'a month (or day) / widen'], ['A  Y  L', 'all · last 12 months · last 30 days'], ['↵', 'open the clusters']],
+    'Flip and keep': [['← →  ↑ ↓', 'previous / next cluster'], ['k j', 'previous / next photo, across clusters'], ['1 – 9', 'keep that photo (again: undo)'], ['⇧ Tab', 'previous photo in the cluster']],
+    'Clusters and filters': [['on the start screen', ''], ['← →  ⇧', 'a month (or day) / widen'], ['A  Y  L', 'all · last 12 months · last 30 days'], ['in daily cleanup', ''], ['← →  ↑ ↓', 'a day / a month'], ['Home', 'today'], ['↵', 'open the clusters']],
     'Review and delete': [['← →  ↑ ↓', 'move between photos that go'], ['X  click', 'keep it instead'], ['Esc  R', 'close']],
+    'Look closely': [['1 – 9  Tab', 'switch photo in the large view'], ['j k', 'photo by photo, across clusters'], ['Esc  Space', 'back from the large view'], ['click · double-click', 'back · actual pixels']],
   };
-  const skip = new Set(['next', 'prev', 'next10', 'prev10', 'menu', 'keys', 'openphotos']);
+  const skip = new Set(['next', 'prev', 'next10', 'prev10', 'nextphoto', 'prevphoto', 'menu', 'keys', 'openphotos']);
   const cols = [el('dl'), el('dl')];
   MENU.forEach(([title, items], gi) => {
     const dl = cols[gi < 2 ? 0 : 1];
@@ -1968,8 +2183,10 @@ function buildHelp() {
 
 /* ------------------------------------------------------------ keys */
 
-// Forward and back through the clusters: → ↓ j and ← ↑ k, all the same.
-const FLIP_KEYS = { ArrowRight: 1, ArrowDown: 1, j: 1, J: 1, ArrowLeft: -1, ArrowUp: -1, k: -1, K: -1 };
+// Forward and back through the clusters: → ↓ and ← ↑. (j and k step through
+// the photos, one at a time, across clusters.)
+const FLIP_KEYS = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+const PHOTO_KEYS = { j: 1, J: 1, k: -1, K: -1 };
 
 function onKey(e) {
   if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;
@@ -2041,7 +2258,7 @@ function onKey(e) {
       setClustersOnly(!S.settings.clustersOnly);
       return e.preventDefault();
     }
-    if (lower === 'd') {
+    if (lower === 't') {
       setDaily(!S.settings.daily);
       return e.preventDefault();
     }
@@ -2049,6 +2266,18 @@ function onKey(e) {
       openReview();
       return e.preventDefault();
     }
+  }
+
+  if (!$('#start').hidden && S.settings.daily) {
+    // the calendar of days
+    if (k === 'ArrowLeft' || k === 'ArrowRight') stepDailyDay(k === 'ArrowRight' ? 1 : -1);
+    else if (k === 'ArrowUp' || k === 'ArrowDown') stepDailyMonth(k === 'ArrowDown' ? 1 : -1);
+    else if (k === 'Home') setDailyDay(todayMD());
+    else if (k === 'Enter') !$('#start-open').disabled && openViewer();
+    else if (k === 'Escape') backToViewer();
+    else if (lower === 'a') quickRange('all');
+    else return;
+    return e.preventDefault();
   }
 
   if (!$('#start').hidden) {
@@ -2067,6 +2296,10 @@ function onKey(e) {
 
   if (FLIP_KEYS[k]) {
     go(FLIP_KEYS[k] * (e.shiftKey ? 10 : 1));
+    return e.preventDefault();
+  }
+  if (PHOTO_KEYS[k]) {
+    stepPhoto(PHOTO_KEYS[k]);
     return e.preventDefault();
   }
   if (/^[1-9]$/.test(k)) {
@@ -2096,8 +2329,12 @@ function onKey(e) {
     case '0':
       clearCluster();
       break;
+    case 'd':
     case 'x':
       if (c) toggleDel(focusedId());
+      break;
+    case 's':
+      toggleFavorite();
       break;
     case ' ': {
       const v = $('#solo-frame video');
@@ -2209,7 +2446,7 @@ function bindUi() {
           document.body.classList.toggle('fs', appFs);
         }
       }
-      if (!$('#start').hidden) drawChart();
+      if (!$('#start').hidden) (S.settings.daily ? drawCalendar() : drawChart());
       if (!$('#viewer').hidden) render();
     }, 80);
   });
@@ -2223,7 +2460,7 @@ function bindUi() {
     }
     if (t && t.tagName === 'BUTTON' && !t.dataset.mouse && (e.key === ' ' || e.key === 'Enter') && $('#menu').hidden) return;
     if (e.key === 'Tab' && !$('#viewer').hidden && $('#review').hidden && $('#menu').hidden) e.preventDefault();
-    if (e.repeat && FLIP_KEYS[e.key]) S.flipping = true;
+    if (e.repeat && (FLIP_KEYS[e.key] || PHOTO_KEYS[e.key])) S.flipping = true;
     onKey(e);
   });
   document.addEventListener('mousedown', (e) => {
@@ -2235,7 +2472,7 @@ function bindUi() {
     if (b) setTimeout(() => b.blur(), 0);
   });
   document.addEventListener('keyup', (e) => {
-    if (S.flipping && FLIP_KEYS[e.key]) {
+    if (S.flipping && (FLIP_KEYS[e.key] || PHOTO_KEYS[e.key])) {
       S.flipping = false;
       if (!$('#viewer').hidden) preloadAround(); // resume the full prefetch
     }

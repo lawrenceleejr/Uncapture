@@ -61,6 +61,20 @@ pub fn on_this_day(day: Ymd, today: Ymd) -> bool {
     (m, d) == (today.1, today.2)
 }
 
+/// "MM-DD" → (month, day), for a day of the year (29 February allowed)
+pub fn parse_md(s: &str) -> Option<(u32, u32)> {
+    let (m, d) = s.trim().split_once('-')?;
+    let (m, d) = (m.parse().ok()?, d.parse().ok()?);
+    chrono::NaiveDate::from_ymd_opt(2024, m, d).map(|_| (m, d))
+}
+
+/// A photo taken on day `day` belongs to the day of the year `md` in `year`:
+/// the same month and day, or 29 February on 28 February in other years
+/// (the daily cleanup rule, without the "earlier years" part).
+pub fn same_day_of_year(day: Ymd, md: (u32, u32), year: i32) -> bool {
+    (day.1, day.2) == md || ((day.1, day.2) == (2, 29) && md == (2, 28) && !is_leap(year))
+}
+
 /// Clusters over `order` (asset indices sorted by time). A new cluster starts
 /// where the gap since the previous photo is longer than the window; a gap of
 /// exactly the window stays together. A burst always stays in one cluster.
@@ -266,6 +280,18 @@ mod tests {
         assert!(on_this_day((2020, 2, 28), (2024, 2, 28)));
         assert!(on_this_day((2020, 2, 28), (2025, 2, 28)));
         assert!(!on_this_day((2020, 2, 28), (2024, 2, 29)));
+    }
+
+    #[test]
+    fn days_of_the_year() {
+        assert_eq!(parse_md("03-03"), Some((3, 3)));
+        assert_eq!(parse_md("02-29"), Some((2, 29)));
+        assert_eq!(parse_md("02-30"), None);
+        assert_eq!(parse_md("junk"), None);
+        assert!(same_day_of_year((2019, 3, 3), (3, 3), 2026));
+        assert!(same_day_of_year((2020, 2, 29), (2, 28), 2025));
+        assert!(!same_day_of_year((2020, 2, 29), (2, 28), 2024));
+        assert!(same_day_of_year((2020, 2, 29), (2, 29), 2024));
     }
 
     #[test]

@@ -98,6 +98,8 @@ pub trait PhotoSource: Send + Sync {
     fn delete(&self, ids: &[AssetId]) -> DeleteOutcome;
     /// called whenever the library changes (sync, edits, deletions elsewhere)
     fn on_change(&self, f: Box<dyn Fn() + Send + Sync>);
+    /// sets or clears the heart in Photos (the same favorite Photos shows)
+    fn set_favorite(&self, ids: &[AssetId], on: bool) -> Result<(), String>;
     /// warm the source's own cache for photos about to be shown
     fn preheat(&self, _ids: &[AssetId], _px: u32) {}
     /// file sizes in bytes; `None` where only an estimate is possible

@@ -383,6 +383,32 @@ impl PhotoSource for PhotoKitSource {
         out
     }
 
+    fn set_favorite(&self, ids: &[AssetId], on: bool) -> Result<(), String> {
+        let assets: Vec<Retained<PHAsset>> = self.fetch(ids).into_iter().filter_map(|(_, a)| a).collect();
+        if assets.is_empty() {
+            return Err("not in the library".into());
+        }
+        let change = RcBlock::new(move || unsafe {
+            for a in &assets {
+                PHAssetChangeRequest::changeRequestForAsset(a).setFavorite(on);
+            }
+        });
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(Some(tx));
+        let done = RcBlock::new(move |ok: Bool, e: *mut NSError| {
+            let msg = unsafe { e.as_ref() }.map(|e| e.localizedDescription().to_string());
+            if let Some(t) = tx.lock().unwrap().take() {
+                let _ = t.send((ok.as_bool(), msg));
+            }
+        });
+        unsafe { PHPhotoLibrary::sharedPhotoLibrary().performChanges_completionHandler(RcBlock::as_ptr(&change), Some(&done)) };
+        match rx.recv() {
+            Ok((true, _)) => Ok(()),
+            Ok((false, m)) => Err(m.unwrap_or_else(|| "Photos said no".into())),
+            Err(_) => Err("Photos did not answer".into()),
+        }
+    }
+
     fn on_change(&self, f: Box<dyn Fn() + Send + Sync>) {
         self.listeners.lock().unwrap().push(f);
         if self.authorization().allowed() {

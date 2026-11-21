@@ -47,7 +47,17 @@ struct State {
     settings: Settings,
     /// the last day daily cleanup was finished, "YYYY-MM-DD"
     daily_done: Option<String>,
+    /// daily cleanup, by day of the year ("MM-DD"): each time photos of that
+    /// day were deleted from daily cleanup, when and how many
+    daily_log: std::collections::BTreeMap<String, Vec<DailyEntry>>,
     first_delete_seen: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct DailyEntry {
+    /// "YYYY-MM-DD", the day of the cleanup
+    date: String,
+    deleted: usize,
 }
 
 #[derive(Default)]
@@ -390,6 +400,7 @@ fn state_json(app: &App) -> Value {
         "platform": std::env::consts::OS.replace("macos", "darwin"),
         "settings": s.settings,
         "dailyDone": s.daily_done,
+        "dailyLog": s.daily_log,
         "today": fmt_day(today()),
         "firstDeleteSeen": s.first_delete_seen,
         "windows": cluster::WINDOWS,
@@ -438,10 +449,13 @@ fn assets_json(lib: &Lib) -> Vec<u8> {
 fn filter_from(params: &HashMap<String, String>, st: &Settings) -> Filter {
     let window = params.get("window").and_then(|w| w.parse().ok()).map(cluster::snap_window).unwrap_or(st.window);
     let daily = params.get("onThisDay").map(|v| v == "1").unwrap_or(st.daily);
+    // the day of the year to clean up ("MM-DD"): today unless one is chosen
+    let t = today();
+    let day = params.get("day").and_then(|d| cluster::parse_md(d)).map(|(m, d)| (t.0, m, d)).unwrap_or(t);
     Filter {
         window,
         clusters_only: params.get("clustersOnly").map(|v| v == "1").unwrap_or(st.clusters_only),
-        on_this_day: daily.then(today),
+        on_this_day: daily.then_some(day),
         from: params.get("from").and_then(|s| parse_day(s)),
         to: params.get("to").and_then(|s| parse_day(s)),
     }
@@ -639,6 +653,20 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 let lib = app.lib.read().unwrap();
                 targets.iter().filter_map(|id| lib.by_id.get(id).map(|&i| (id.clone(), lib.assets[i].local_id.clone()))).collect()
             };
+            // deleting from daily cleanup: which of these were taken on that day of the year
+            let daily_day = body["day"].as_str().and_then(cluster::parse_md);
+            let of_day: HashSet<String> = match daily_day {
+                Some(md) => {
+                    let lib = app.lib.read().unwrap();
+                    let year = today().0;
+                    targets
+                        .iter()
+                        .filter(|id| lib.by_id.get(*id).map(|&i| cluster::same_day_of_year(cluster::local_day(&lib.assets[i], &local_offset), md, year)).unwrap_or(false))
+                        .cloned()
+                        .collect()
+                }
+                None => HashSet::new(),
+            };
             // macOS shows its own confirmation here; this waits for the answer
             let out = app.src.delete(&targets);
             if !out.deleted.is_empty() || !out.missing.is_empty() {
@@ -647,6 +675,10 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 s.keep.retain(|l| !gone.contains(l));
                 s.del.retain(|l| !gone.contains(l));
                 s.first_delete_seen = true;
+                let n = out.deleted.iter().filter(|id| of_day.contains(*id)).count();
+                if let (Some((m, d)), true) = (daily_day, n > 0) {
+                    s.daily_log.entry(format!("{:02}-{:02}", m, d)).or_default().push(DailyEntry { date: fmt_day(today()), deleted: n });
+                }
             }
             app.save_state();
             app.refresh();
@@ -655,6 +687,29 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 200,
                 json!({ "deleted": out.deleted.len(), "missing": out.missing.len(), "skipped": skipped, "cancelled": out.cancelled, "error": out.error }),
             )
+        }
+        ("/api/favorite", _, true, _) => {
+            // the heart in Photos: written to the library straight away
+            let body = read_json(&mut req);
+            let ids: Vec<String> = ids_of(&body["ids"]).into_iter().filter(|id| app.lib.read().unwrap().by_id.contains_key(id)).collect();
+            let on = body["on"].as_bool().unwrap_or(true);
+            if ids.is_empty() {
+                return err(req, 404, "not found");
+            }
+            match app.src.set_favorite(&ids, on) {
+                Ok(()) => {
+                    let mut lib = app.lib.write().unwrap();
+                    for id in &ids {
+                        if let Some(&i) = lib.by_id.get(id) {
+                            lib.assets[i].favorite = on;
+                        }
+                    }
+                    drop(lib);
+                    let window = app.state.lock().unwrap().settings.window;
+                    send_json(req, 200, json!({ "favorite": on, "toDelete": app.delete_count(window) }))
+                }
+                Err(e) => err(req, 500, &e),
+            }
         }
         ("/api/first-delete-seen", _, true, _) => {
             app.state.lock().unwrap().first_delete_seen = true;
