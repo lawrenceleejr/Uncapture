@@ -30,7 +30,11 @@ struct Entry {
     file: PathBuf,
     thumb: Option<(u64, u64)>,
     video: bool,
+    orientation: u16,
 }
+
+/// Resized copies, as PhotoKit's cache would hold them: (id, px) → JPEG
+const RESIZED_MAX: usize = 400;
 
 pub struct FakeSource {
     dir: PathBuf,
@@ -38,6 +42,7 @@ pub struct FakeSource {
     files: RwLock<HashMap<AssetId, Entry>>,
     listeners: Arc<Mutex<Vec<Box<dyn Fn() + Send + Sync>>>>,
     watching: Mutex<bool>,
+    resized: Mutex<(HashMap<(AssetId, u32), Arc<Vec<u8>>>, std::collections::VecDeque<(AssetId, u32)>)>,
 }
 
 fn is_jpeg(n: &str) -> bool {
@@ -77,6 +82,7 @@ impl FakeSource {
             files: RwLock::new(HashMap::new()),
             listeners: Arc::new(Mutex::new(Vec::new())),
             watching: Mutex::new(false),
+            resized: Mutex::new((HashMap::new(), Default::default())),
         };
         if let Some(a) = me.manifest().get("auth").and_then(|v| v.as_str()).and_then(parse_auth) {
             *me.auth.lock().unwrap() = a;
@@ -111,6 +117,51 @@ impl FakeSource {
         }
         h
     }
+}
+
+impl FakeSource {
+    /// The photo at most `px` on its long side, upright, as JPEG (cached).
+    /// A photo already that small is sent as it is.
+    fn resized(&self, id: &AssetId, px: u32) -> Option<Arc<Vec<u8>>> {
+        let key = (id.clone(), px);
+        if let Some(b) = self.resized.lock().unwrap().0.get(&key) {
+            return Some(b.clone());
+        }
+        let (file, orientation) = {
+            let files = self.files.read().unwrap();
+            let e = files.get(id).filter(|e| !e.video)?;
+            (e.file.clone(), e.orientation)
+        };
+        let bytes = fs::read(&file).ok()?;
+        let out = Arc::new(resize_jpeg(&bytes, px, orientation).unwrap_or(bytes));
+        let mut cache = self.resized.lock().unwrap();
+        cache.0.insert(key.clone(), out.clone());
+        cache.1.push_back(key);
+        while cache.1.len() > RESIZED_MAX {
+            if let Some(old) = cache.1.pop_front() {
+                cache.0.remove(&old);
+            }
+        }
+        Some(out)
+    }
+}
+
+fn resize_jpeg(bytes: &[u8], px: u32, orientation: u16) -> Option<Vec<u8>> {
+    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?;
+    if img.width().max(img.height()) <= px && orientation <= 1 {
+        return None;
+    }
+    let img = if img.width().max(img.height()) > px { img.thumbnail(px, px) } else { img };
+    let img = match orientation {
+        3 => img.rotate180(),
+        6 => img.rotate90(),
+        8 => img.rotate270(),
+        _ => img,
+    };
+    let mut out = Vec::new();
+    let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85);
+    img.to_rgb8().write_with_encoder(enc).ok()?;
+    Some(out)
 }
 
 fn wall_to_utc(date: &str) -> Option<chrono::NaiveDateTime> {
@@ -199,7 +250,8 @@ impl PhotoSource for FakeSource {
                 shared: flag("shared"),
                 bytes: md.map(|m| m.len()),
             });
-            files.insert(id, Entry { file: p, thumb: ex.and_then(|e| e.thumb), video });
+            let orientation = ex.as_ref().map(|e| e.orientation).unwrap_or(1);
+            files.insert(id, Entry { file: p, thumb: ex.and_then(|e| e.thumb), video, orientation });
         }
         *self.files.write().unwrap() = files;
         out.sort_by(|a, b| a.created.cmp(&b.created).then_with(|| a.local_id.cmp(&b.local_id)));
@@ -219,7 +271,8 @@ impl PhotoSource for FakeSource {
             f.read_exact(&mut buf).ok()?;
             return Some(buf);
         }
-        fs::read(&e.file).ok()
+        drop(files);
+        self.resized(id, _px).map(|b| b.to_vec())
     }
 
     fn image(&self, id: &AssetId, px: Option<u32>, progress: Progress) -> Option<Vec<u8>> {
@@ -228,10 +281,13 @@ impl PhotoSource for FakeSource {
             let e = files.get(id).filter(|e| !e.video)?;
             e.file.clone()
         };
-        if px.is_none() {
-            simulate_download(&*progress);
+        match px {
+            Some(px) => self.resized(id, px).map(|b| b.to_vec()),
+            None => {
+                simulate_download(&*progress);
+                fs::read(file).ok()
+            }
         }
-        fs::read(file).ok()
     }
 
     fn video_file(&self, id: &AssetId, progress: Progress) -> Option<PathBuf> {
