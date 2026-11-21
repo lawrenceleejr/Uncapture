@@ -810,25 +810,47 @@ function showViewer() {
   render();
 }
 
-function applyLibrary(lib, keepId) {
+// Where you are, so it can be found again after the clusters change: the
+// photo you're on, its time, and the rest of its cluster.
+function anchorHere() {
+  const c = cur();
+  const id = focusedId();
+  return id ? { id, t: S.byId.get(id)?.t ?? 0, ids: c.slice() } : null;
+}
+
+function applyLibrary(lib, anchor) {
   S.clusters = lib.clusters.map((c) => c.map((i) => S.assets[i].id));
   S.years = lib.years || [];
   S.toDelete = lib.toDelete;
   updateDeleteCount();
   TL.version = (TL.version || 0) + 1;
-  // stay on the cluster holding the photo you were on (or the nearest in time)
+  // stay where you were: the same photo; else what's left of its cluster;
+  // else (it's gone) the first cluster at or after that point in time
   let idx = 0;
-  if (keepId) {
-    idx = S.clusters.findIndex((c) => c.includes(keepId));
-    if (idx === -1) {
-      const t = S.byId.get(keepId)?.t ?? 0;
-      idx = S.clusters.findIndex((c) => S.byId.get(c[0]).t >= t);
-      if (idx === -1) idx = S.clusters.length - 1;
+  let focus = 0;
+  if (anchor) {
+    idx = S.clusters.findIndex((c) => c.includes(anchor.id));
+    if (idx >= 0) focus = S.clusters[idx].indexOf(anchor.id);
+    else {
+      const left = new Set(anchor.ids);
+      idx = S.clusters.findIndex((c) => c.some((id) => left.has(id)));
+      if (idx >= 0) {
+        // the photo nearest in time to the one you were on
+        const c = S.clusters[idx];
+        let best = Infinity;
+        c.forEach((id, i) => {
+          const d = Math.abs(S.byId.get(id).t - anchor.t);
+          if (left.has(id) && d < best) [best, focus] = [d, i];
+        });
+      } else {
+        idx = S.clusters.findIndex((c) => S.byId.get(c.at(-1)).t >= anchor.t);
+        if (idx === -1) idx = S.clusters.length - 1;
+      }
     }
   }
   S.idx = clamp(idx, 0, Math.max(0, S.clusters.length - 1));
   const c = S.clusters[S.idx];
-  S.focus = c && keepId ? Math.max(0, c.indexOf(keepId)) : 0;
+  S.focus = c ? clamp(focus, 0, c.length - 1) : 0;
   S.dailyMarked = false;
   updateWhere();
   startSharp();
@@ -836,18 +858,16 @@ function applyLibrary(lib, keepId) {
 
 // The window or a filter changed: cluster again, staying where you were.
 let reclusterToken = 0;
-async function recluster(msg) {
-  const c = S.clusters[S.idx];
-  const at = c ? c[Math.min(S.focus, c.length - 1)] : null;
+async function recluster(msg, anchor = anchorHere()) {
   const token = ++reclusterToken;
   if (S.version !== S.server.library.version) await loadAssets();
   const lib = await api('GET', libraryUrl()).catch(() => null);
   if (!lib || token !== reclusterToken) return;
   if (lib.version !== S.version) {
     await loadAssets();
-    return recluster(msg);
+    return recluster(msg, anchor);
   }
-  applyLibrary(lib, at);
+  applyLibrary(lib, anchor);
   if (msg) toast(`${msg} · ${fmtN(S.clusters.length)} cluster${S.clusters.length === 1 ? '' : 's'}`);
   if (!$('#viewer').hidden) render();
 }
@@ -1807,9 +1827,27 @@ function dailyDone() {
 
 // One hairline tick per cluster, its height growing with the cluster's size;
 // clusters with a keeper stand taller, in amber; the current one in ink.
+// Hovering swells the ticks near the mouse (Brackit's fisheye), with a peek.
 const TICK_H = 22;
 const BULGE = 26;
-const TL = { version: 0, base: null, baseKey: '' };
+// hover state: `strength` eases 0↔1, `fx` follows the mouse (canvas px)
+const TL = { version: 0, base: null, baseKey: '', strength: 0, target: 0, fx: 0, mx: 0, raf: 0 };
+
+// Fisheye (Sarkar–Brown): spreads ticks near the focus, compresses the rest.
+function fisheye(x, fx, w, d) {
+  if (d <= 0) return x;
+  const left = x < fx;
+  const span = left ? fx : w - fx;
+  if (span <= 0) return x;
+  const t = Math.abs(x - fx) / span;
+  const g = ((d + 1) * t) / (d * t + 1);
+  return left ? fx - g * span : fx + g * span;
+}
+
+const tickOf = (c) => {
+  const kept = keeperPos(c) != null;
+  return { kept, th: kept ? 14 : Math.min(11, 3 + 2 * Math.log2(c.length)) };
+};
 
 function drawTicks() {
   const cv = $('#ticks');
@@ -1825,7 +1863,10 @@ function drawTicks() {
   ctx.clearRect(0, 0, cv.width, cv.height);
   const n = S.clusters.length;
   if (!n) return;
-  // the strip changes only with marks, filters or size: drawn once off-screen
+  ctx.setTransform(dpr(), 0, 0, dpr(), 0, 0);
+  if (TL.strength > 0 || TL.target > 0) return paintTicks(ctx, w, H, n);
+  // at rest the strip only changes with marks, filters or size: drawn once
+  // off-screen; a key press just copies it and adds the cursor
   const key = `${w}|${n}|${dpr()}|${TL.version}`;
   if (!TL.base || TL.baseKey !== key) {
     TL.base = document.createElement('canvas');
@@ -1833,26 +1874,69 @@ function drawTicks() {
     TL.base.height = cv.height;
     const b = TL.base.getContext('2d');
     b.setTransform(dpr(), 0, 0, dpr(), 0, 0);
-    const css = getComputedStyle(document.documentElement);
-    const faint = css.getPropertyValue('--tick').trim();
-    const accent = css.getPropertyValue('--accent').trim();
-    const step = w / n;
-    const tw = Math.max(1, Math.min(2, step - 1));
-    for (let i = 0; i < n; i++) {
-      const c = S.clusters[i];
-      const kept = keeperPos(c) != null;
-      const th = kept ? 14 : Math.min(11, 3 + 2 * Math.log2(c.length));
-      b.fillStyle = kept ? accent : faint;
-      b.globalAlpha = kept ? 1 : 0.85;
-      b.fillRect(i * step + step / 2 - tw / 2, H - th, tw, th);
-    }
+    paintTicks(b, w, H, n, false);
     TL.baseKey = key;
   }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(TL.base, 0, 0);
   ctx.setTransform(dpr(), 0, 0, dpr(), 0, 0);
   const step = w / n;
   ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
   ctx.fillRect(S.idx * step + step / 2 - 0.75, H - TICK_H, 1.5, TICK_H);
+}
+
+function paintTicks(ctx, w, H, n, withCursor = true) {
+  const step = w / n;
+  const css = getComputedStyle(document.documentElement);
+  const faint = css.getPropertyValue('--tick').trim();
+  const accent = css.getPropertyValue('--accent').trim();
+  const ink = css.getPropertyValue('--ink').trim();
+  const s = TL.strength;
+  const d = 3 * s; // fisheye distortion
+  const sigma = 48; // px: how wide the bulge is
+  const geom = (i) => {
+    const x0 = fisheye(i * step, TL.fx, w, d);
+    const x1 = fisheye((i + 1) * step, TL.fx, w, d);
+    const mid = (x0 + x1) / 2;
+    const dx = mid - TL.fx;
+    const lift = s * Math.exp(-(dx * dx) / (2 * sigma * sigma)); // 0..1
+    const tw = Math.max(1, Math.min(2 + 4 * lift, x1 - x0 - 1));
+    return { x: mid - tw / 2, tw, lift };
+  };
+  for (let i = 0; i < n; i++) {
+    const { kept, th: base } = tickOf(S.clusters[i]);
+    const { x, tw, lift } = geom(i);
+    const th = Math.min(H, base * (1 + 2.6 * lift));
+    ctx.fillStyle = kept ? accent : faint;
+    ctx.globalAlpha = kept ? 1 : 0.85 + 0.15 * lift;
+    ctx.fillRect(x, H - th, tw, th);
+  }
+  ctx.globalAlpha = 1;
+  if (!withCursor) return;
+  // the current cluster: a full-height ink line (taller when bulged)
+  const cur = geom(S.idx);
+  ctx.fillStyle = ink;
+  ctx.fillRect(cur.x, H - TICK_H * (1 + 0.9 * cur.lift), Math.max(cur.tw, 1.5), TICK_H * (1 + 0.9 * cur.lift));
+}
+
+const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function animateTimeline() {
+  if (reduceMotion) {
+    TL.strength = TL.target;
+    TL.fx = TL.mx;
+    return drawTicks();
+  }
+  if (TL.raf) return;
+  const tick = () => {
+    TL.strength += (TL.target - TL.strength) * 0.22;
+    TL.fx += (TL.mx - TL.fx) * 0.35;
+    if (Math.abs(TL.target - TL.strength) < 0.01) TL.strength = TL.target;
+    if (Math.abs(TL.mx - TL.fx) < 0.5) TL.fx = TL.mx;
+    drawTicks();
+    const moving = TL.strength !== TL.target || TL.fx !== TL.mx;
+    TL.raf = moving ? requestAnimationFrame(tick) : 0;
+  };
+  TL.raf = requestAnimationFrame(tick);
 }
 
 let peekIdx = -1;
@@ -2103,6 +2187,12 @@ function toggleZoom(e) {
 const RV = { data: null, cursor: 0, busy: false, bytes: {} };
 
 async function openReview() {
+  // where to come back to after a delete: this view, this photo, the large view if open
+  RV.back = {
+    view: !$('#viewer').hidden ? 'viewer' : !$('#start').hidden ? 'start' : null,
+    anchor: !$('#viewer').hidden ? anchorHere() : null,
+    solo: !!S.solo,
+  };
   closeSolo();
   closeMenu();
   $('#review').hidden = false;
@@ -2264,31 +2354,45 @@ async function doDelete() {
   res.replaceChildren();
   if (r.cancelled) res.textContent = 'Nothing was deleted: the confirmation was cancelled.';
   else if (r.error && !r.deleted) res.textContent = `Nothing was deleted. Photos said: ${r.error}`;
-  else {
-    // the space first, large; then what happens to it
-    if (r.deleted) {
-      const head = el('div', 'cleared');
-      head.append(el('span', 'amount num', fmtBytes(r.bytes || 0)), ' cleared');
-      res.append(head);
-    }
-    let msg = `Deleted ${fmtN(r.deleted)} photo${r.deleted === 1 ? '' : 's'}. They're in Recently Deleted in Photos for 30 days: iCloud gets the space back then, or as soon as you empty it there.`;
-    if (r.missing) msg += ` ${fmtN(r.missing)} were already gone from Photos and were skipped.`;
-    if (r.skipped) msg += ` ${fmtN(r.skipped)} were no longer marked and stayed.`;
-    res.append(el('div', 'what', msg));
-    if (r.deleted && r.allBytes > r.bytes) res.append(el('div', 'total', `In all, Uncapture has cleared ${fmtBytes(r.allBytes)}: ${fmtN(r.allPhotos)} photos.`));
+  if (!r.deleted && !r.missing) return renderReview();
+  // the marks of what went are cleared (the server did the same)
+  const st = await api('GET', '/api/state');
+  S.server = st;
+  S.keep = new Set(st.marks.keep);
+  S.del = new Set(st.marks.del);
+  await waitForLibrary();
+  await loadAssets();
+  // back exactly where you were, for the next batch
+  const back = RV.back || {};
+  $('#review').hidden = true;
+  $('#first').hidden = true;
+  if (back.view === 'viewer' && S.opened) {
+    $('#viewer').hidden = false;
+    await recluster(null, back.anchor);
+    if (back.solo && back.anchor && focusedId() === back.anchor.id) openSolo();
+  } else showStart();
+  showCleared(r);
+}
+
+// What the delete did, over the view you're back in: the space first, large;
+// then what happens to it, and the total so far.
+let clearedTimer = 0;
+function showCleared(r) {
+  const box = $('#cleared');
+  box.replaceChildren();
+  if (r.deleted) {
+    const head = el('div', 'cleared');
+    head.append(el('span', 'amount num', fmtBytes(r.bytes || 0)), ' cleared');
+    box.append(head);
   }
-  res.classList.toggle('done', !!r.deleted);
-  if (r.deleted || r.missing) {
-    // the marks of what went are cleared (the server did the same)
-    const st = await api('GET', '/api/state');
-    S.server = st;
-    S.keep = new Set(st.marks.keep);
-    S.del = new Set(st.marks.del);
-    await waitForLibrary();
-    await loadAssets();
-    await loadReview();
-    if (S.opened) await recluster(null);
-  } else renderReview();
+  let msg = `Deleted ${fmtN(r.deleted)} photo${r.deleted === 1 ? '' : 's'}. They're in Recently Deleted in Photos for 30 days: iCloud gets the space back then, or as soon as you empty it there.`;
+  if (r.missing) msg += ` ${fmtN(r.missing)} were already gone from Photos and were skipped.`;
+  if (r.skipped) msg += ` ${fmtN(r.skipped)} were no longer marked and stayed.`;
+  box.append(el('div', 'what', msg));
+  if (r.deleted && r.allBytes > r.bytes) box.append(el('div', 'total', `In all, Uncapture has cleared ${fmtBytes(r.allBytes)}: ${fmtN(r.allPhotos)} photos.`));
+  box.hidden = false;
+  clearTimeout(clearedTimer);
+  clearedTimer = setTimeout(() => (box.hidden = true), 9000);
 }
 
 // After a delete, the server reads the library again: wait for that.
@@ -2729,6 +2833,7 @@ function bindUi() {
   $('#delete-btn').onclick = () => askDelete();
   $('#first-go').onclick = () => doDelete();
   $('#first-cancel').onclick = () => ($('#first').hidden = true);
+  $('#cleared').onclick = () => ($('#cleared').hidden = true);
   $('#open-photos').onclick = () => api('POST', '/api/open', { what: 'photos' }).catch(() => {});
   $('#fs-btn').onclick = () => toggleFullscreen();
   $('#help-btn').onclick = () => ($('#help').hidden = !$('#help').hidden);
@@ -2743,10 +2848,21 @@ function bindUi() {
 
   // the timeline: click to jump, hover to peek
   const ticks = $('#ticks');
-  ticks.addEventListener('mousemove', peekAt);
+  ticks.addEventListener('mousemove', (e) => {
+    const r = ticks.getBoundingClientRect();
+    TL.mx = e.clientX - r.left;
+    if (TL.target === 0) {
+      if (TL.strength === 0) TL.fx = TL.mx; // the bulge appears under the cursor
+      TL.target = 1;
+    }
+    animateTimeline();
+    peekAt(e);
+  });
   ticks.addEventListener('mouseleave', () => {
     $('#peek').hidden = true;
     peekIdx = -1;
+    TL.target = 0;
+    animateTimeline();
   });
   ticks.addEventListener('click', (e) => {
     const r = ticks.getBoundingClientRect();

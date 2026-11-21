@@ -238,9 +238,15 @@ body.fs #peek { display: none; }
 .close { font-size: 22px; line-height: 1; margin-left: 6px; }
 #review-result { min-height: 30px; padding: 8px 0 6px; font-size: 13px; line-height: 1.5; }
 #review-result.done { color: var(--ink); }
-#review-result .cleared { font-size: 15px; color: var(--ink); margin: 2px 0 4px; }
-#review-result .cleared .amount { font-size: 28px; letter-spacing: .01em; margin-right: 4px; }
-#review-result .total { color: var(--muted); margin-top: 4px; }
+/* after a delete, over the view you're back in */
+#cleared {
+  position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 55; width: min(620px, 90vw);
+  padding: 14px 18px; background: rgba(22, 22, 20, .96); border: 1px solid var(--hair); border-radius: 4px;
+  color: var(--ink); font-size: 13px; line-height: 1.5; cursor: default;
+}
+#cleared .cleared { font-size: 15px; margin-bottom: 4px; }
+#cleared .cleared .amount { font-size: 28px; letter-spacing: .01em; margin-right: 4px; }
+#cleared .total { color: var(--muted); margin-top: 4px; }
 #review-scroll { flex: 1; overflow-y: auto; padding-bottom: 40px; }
 .rgroup { padding: 10px 0 16px; border-bottom: 1px solid var(--hair); }
 .rgroup-head { display: flex; gap: 12px; color: var(--ink); margin-bottom: 8px; }

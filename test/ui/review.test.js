@@ -68,23 +68,27 @@ test('review and delete: exactly what is marked goes, after the confirmation', a
   await page.keyboard.press('Enter');
   await page.waitForSelector('#first:not([hidden])');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => /Deleted 4 photos\./.test(document.querySelector('#review-result').textContent), null, { timeout: 10000 });
-  const result = await page.$eval('#review-result', (e) => e.textContent);
+  // done: straight back to the clusters, the result over them
+  await page.waitForFunction(() => document.querySelector('#review').hidden && /Deleted 4 photos\./.test(document.querySelector('#cleared').textContent), null, { timeout: 10000 });
+  const result = await page.$eval('#cleared', (e) => e.textContent);
   assert.match(result, /Recently Deleted in Photos for 30 days: iCloud gets the space back then, or as soon as you empty it there\./);
   // the space cleared, first and large: the files' sizes here
   const cleared = ['IMG_0003.JPG', 'IMG_0004.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG'].reduce((t, n) => t + fs.statSync(path.join(lib, '.trash', n)).size, 0);
-  const big = await page.$eval('#review-result .cleared .amount', (e) => e.textContent);
+  const big = await page.$eval('#cleared .cleared .amount', (e) => e.textContent);
   assert.equal(big, cleared >= 1e6 ? `${Math.round(cleared / 1e6)} MB` : `${Math.round(cleared / 1e3)} KB`);
-  assert.match(await page.$eval('#review-result .cleared', (e) => e.textContent), / cleared$/);
+  assert.match(await page.$eval('#cleared .cleared', (e) => e.textContent), / cleared$/);
   assert.deepEqual(trash(), ['IMG_0003.JPG', 'IMG_0004.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG']);
   for (const kept of ['IMG_0001.JPG', 'IMG_0002.JPG', 'IMG_0007.JPG']) assert.ok(fs.existsSync(path.join(lib, kept)), kept);
-
-  // the library was read again: nothing left to delete, the photos gone
-  await page.waitForFunction(() => document.querySelector('#review-title').textContent === 'Nothing to delete');
   assert.equal(await page.evaluate(() => S.assets.length), photos.length - 4);
-  assert.equal(await page.$eval('#open-photos', (b) => b.hidden), false);
+
+  // where you were: cluster 2 is down to its keeper (a single, hidden by
+  // "clusters only"), so the same point in time is the next cluster, IMG_0009–10
+  assert.equal(await page.$eval('#viewer', (v) => v.hidden), false);
+  assert.equal(await page.evaluate(() => S.settings.clustersOnly), true, 'the same filters');
+  assert.equal(await page.evaluate(() => S.byId.get(cur()[0]).t), photos[8].t);
+  await page.click('#cleared');
+  assert.equal(await page.$eval('#cleared', (c) => c.hidden), true);
   // the start screen keeps the running total, with its sparkline
-  await page.keyboard.press('Escape');
   await page.keyboard.press('o');
   await page.waitForSelector('#start:not([hidden])');
   assert.equal(await page.$eval('#saved-row', (r) => r.hidden), false);
@@ -114,6 +118,30 @@ test('a cancelled confirmation deletes nothing, and says so; no explanation the 
   } finally {
     fs.unlinkSync(path.join(lib, '.cancel-delete'));
   }
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test('a delete from the large view comes back to the large view, on the same photo', async () => {
+  const { page, errors } = await openStart(browser, base);
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#viewer:not([hidden])');
+  // single photos too, so the keeper's cluster stays on screen when it's alone
+  await page.keyboard.press('c');
+  await page.waitForFunction(() => !S.settings.clustersOnly);
+  await page.keyboard.press('End');
+  await page.waitForFunction(() => cur().length === 2);
+  const keeper = await page.evaluate(() => cur()[0]);
+  await page.keyboard.press('1');
+  await page.keyboard.press(' ');
+  await page.waitForSelector('#solo:not([hidden])');
+  await page.keyboard.press('r');
+  await page.waitForFunction(() => /^Delete 1 photo/.test(document.querySelector('#review-title').textContent));
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('#review').hidden && !document.querySelector('#cleared').hidden, null, { timeout: 10000 });
+  await page.waitForSelector('#solo:not([hidden])');
+  assert.equal(await page.$eval('#solo-frame', (f) => f.dataset.id), keeper);
+  assert.equal(await page.evaluate(() => S.settings.clustersOnly), false, 'the same filters');
   assert.deepEqual(errors, []);
   await page.close();
 });
