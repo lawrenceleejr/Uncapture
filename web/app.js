@@ -804,7 +804,7 @@ const TH_BATCH = 60;
 const TH_INFLIGHT = 2;
 const TH_AHEAD = 300;
 const TH_BEHIND = 60;
-const TH_DECODE_AHEAD = 30;
+const TH_DECODE_AHEAD = 20;
 const TH_URL_MAX = 6000;
 const TH_IMG_MAX = 400;
 
@@ -827,10 +827,26 @@ function scheduleThumbs() {
   decodeThumbWindow();
 }
 
+// Keep the clusters just ahead decoded so placeholders appear at once; the
+// next few now, those further on in idle time (a batch of thumbnails can
+// arrive between a key and its paint: decoding hundreds then would show).
+let decodeIdle = 0;
+function decodeCluster(i) {
+  const c = S.clusters[i];
+  if (c) for (const id of c.slice(0, 12)) if (TH.url.has(id) && !TH.img.has(id)) thumbImage(id);
+}
 function decodeThumbWindow() {
+  for (let d = -1; d <= 3; d++) decodeCluster(S.idx + d);
+  if (!decodeIdle) decodeIdle = (window.requestIdleCallback || ((f) => setTimeout(f, 50)))(decodeRest);
+}
+function decodeRest(deadline) {
+  decodeIdle = 0;
   for (let d = -2; d <= TH_DECODE_AHEAD; d++) {
-    const c = S.clusters[S.idx + d];
-    if (c) for (const id of c.slice(0, 40)) if (TH.url.has(id) && !TH.img.has(id)) thumbImage(id);
+    decodeCluster(S.idx + d);
+    if (deadline && deadline.timeRemaining && deadline.timeRemaining() < 3) {
+      decodeIdle = (window.requestIdleCallback || ((f) => setTimeout(f, 50)))(decodeRest);
+      return;
+    }
   }
 }
 
