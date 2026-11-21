@@ -58,6 +58,9 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
       `npm start`/`--serve` mode only the coordinates show (Apple's geocoder
       answers on the app window's main thread).
 - [ ] **Videos only.** `V` shows every video, singles too; `Space` plays one.
+- [ ] **Sharp in the grid.** With "Optimize Mac Storage" on, flip through
+      older photos in the grid: they turn sharp (an iCloud fetch when the
+      Mac only has a small copy). `Space` on one and back: it stays sharp.
 - [ ] **Hearts.** `S` on a photo: it's a favorite in Photos at once (♥ in
       Photos too). Note whether macOS asks to allow the change: ______
       `S` again takes it off.

@@ -82,8 +82,11 @@ photos) and in the large view.
 - Every delete is logged with its size (`deletions` in state.json, sizes
   measured before deleting: PhotoKit's file sizes where it gives them, else
   estimates), for the start screen's "Cleared so far".
-- Display-size images are local only (`image` with a size never
-  downloads). Daily cleanup asks for sharp copies of the day (`/api/sharp`,
+- Display-size images are local first; when the Mac's rendition is much
+  smaller than asked (Optimize Mac Storage), PhotoKitSource asks again with
+  iCloud allowed, at that size. The grid shows the sharpest picture the
+  page has for a photo (`sharpestLoaded`: its own, the large view's, the
+  original), and closing the large view rebuilds the grid. Daily cleanup asks for sharp copies of the day (`/api/sharp`,
   up to 300): downloaded with `download()` in the background, kept in
   `Application Support/Uncapture/sharp`, served by `/api/img` resized; the
   page swaps them in place (`sharpened`).
