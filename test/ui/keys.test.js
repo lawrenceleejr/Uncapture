@@ -267,6 +267,8 @@ test('viewer: the window and filters re-cluster and keep your place', async () =
   await page.keyboard.press('t');
   await page.waitForFunction(() => S.settings.daily && S.clusters.length === 1);
   assert.match(await text(page, '#where'), /^On this day: 2024 \(1 cluster\)$/);
+  // opening a day fetches sharp copies of its photos, and says so
+  await page.waitForFunction(() => /^3 sharp copies/.test(document.querySelector('#c-sharp').textContent));
   await settle(page, 400);
   assert.equal(await page.evaluate(() => S.server.dailyDone), '2025-01-15', 'reaching the end finishes daily cleanup');
   await page.keyboard.press('t');

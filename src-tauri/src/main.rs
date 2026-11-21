@@ -13,6 +13,7 @@ mod fake;
 mod gui;
 #[cfg(target_os = "macos")]
 mod photokit;
+mod resize;
 mod server;
 mod source;
 

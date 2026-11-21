@@ -298,6 +298,13 @@ impl PhotoSource for PhotoKitSource {
         }
     }
 
+    fn download(&self, id: &AssetId, px: u32) -> Option<Vec<u8>> {
+        let a = self.one(id)?;
+        let size = CGSize { width: px as f64, height: px as f64 };
+        // network allowed: Photos fetches what it needs from iCloud for this size
+        self.request_image(&a, size, PHImageRequestOptionsDeliveryMode::HighQualityFormat, true, None, 0.85)
+    }
+
     fn video_file(&self, id: &AssetId, progress: Progress) -> Option<PathBuf> {
         let a = self.one(id)?;
         let resources = unsafe { PHAssetResource::assetResourcesForAsset(&a) };

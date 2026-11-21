@@ -133,7 +133,7 @@ impl FakeSource {
             (e.file.clone(), e.orientation)
         };
         let bytes = fs::read(&file).ok()?;
-        let out = Arc::new(resize_jpeg(&bytes, px, orientation).unwrap_or(bytes));
+        let out = Arc::new(crate::resize::resize_jpeg(&bytes, px, orientation).unwrap_or(bytes));
         let mut cache = self.resized.lock().unwrap();
         cache.0.insert(key.clone(), out.clone());
         cache.1.push_back(key);
@@ -144,24 +144,6 @@ impl FakeSource {
         }
         Some(out)
     }
-}
-
-fn resize_jpeg(bytes: &[u8], px: u32, orientation: u16) -> Option<Vec<u8>> {
-    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?;
-    if img.width().max(img.height()) <= px && orientation <= 1 {
-        return None;
-    }
-    let img = if img.width().max(img.height()) > px { img.thumbnail(px, px) } else { img };
-    let img = match orientation {
-        3 => img.rotate180(),
-        6 => img.rotate90(),
-        8 => img.rotate270(),
-        _ => img,
-    };
-    let mut out = Vec::new();
-    let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85);
-    img.to_rgb8().write_with_encoder(enc).ok()?;
-    Some(out)
 }
 
 fn wall_to_utc(date: &str) -> Option<chrono::NaiveDateTime> {
@@ -373,6 +355,13 @@ impl PhotoSource for FakeSource {
             }
         }
         fs::write(self.dir.join("fake.json"), serde_json::to_vec_pretty(&m).unwrap()).map_err(|e| e.to_string())
+    }
+
+    // a sharp copy "from iCloud": the resized photo, after the simulated delay
+    fn download(&self, id: &AssetId, px: u32) -> Option<Vec<u8>> {
+        let ms: u64 = std::env::var("UNCAPTURE_FAKE_DOWNLOAD_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        std::thread::sleep(Duration::from_millis(ms / 10));
+        self.resized(id, px).map(|b| b.to_vec())
     }
 
     fn bytes(&self, ids: &[AssetId]) -> Vec<Option<u64>> {

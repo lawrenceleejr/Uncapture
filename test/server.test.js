@@ -212,6 +212,35 @@ test('images: display size, full size, video with byte ranges, progress', async 
   assert.deepEqual(p, { downloading: false, progress: 1 });
 });
 
+test('sharp copies: downloaded in the background, kept on disk, served for the page', async () => {
+  const ids = [idOf('C1.JPG'), idOf('C2.JPG'), idOf('F1.MOV'), 'unknown'];
+  const start = (await api('POST', '/api/sharp', { ids })).data;
+  assert.equal(start.total, 2, 'videos and unknown ids are left out');
+  let st;
+  for (let i = 0; i < 50; i++) {
+    st = (await api('GET', '/api/sharp')).data;
+    if (!st.running) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(st.job, start.job);
+  assert.equal(st.done, 2);
+  assert.deepEqual([...st.ready].sort(), [idOf('C1.JPG'), idOf('C2.JPG')].sort());
+  const dir = path.join(tmp, 'home', '.uncapture', 'sharp');
+  assert.deepEqual(fs.readdirSync(dir).sort(), [`${idOf('C1.JPG')}.jpg`, `${idOf('C2.JPG')}.jpg`].sort());
+  // served for display sizes from the copy
+  fs.writeFileSync(path.join(dir, `${idOf('C1.JPG')}.jpg`), Buffer.from('sharp copy'));
+  const img = await api('GET', `/api/img/${idOf('C1.JPG')}?px=2048`);
+  assert.equal(img.data.toString(), 'sharp copy');
+  // a second day: what's already there counts as done at once
+  const again = (await api('POST', '/api/sharp', { ids: [idOf('C2.JPG')] })).data;
+  st = (await api('GET', '/api/sharp')).data;
+  assert.equal(st.job, again.job);
+  assert.deepEqual(st.ready, [idOf('C2.JPG')]);
+  assert.equal(st.running, false);
+  // and the page's header rule holds
+  assert.equal((await fetch(base + '/api/sharp', { method: 'POST', body: '{}' })).status, 403);
+});
+
 test('the API takes changes only from its own page', async () => {
   const put = (headers) => fetch(base + '/api/marks', { method: 'PUT', headers: { 'Content-Type': 'application/json', ...headers }, body: '{}' });
   assert.equal((await put({})).status, 403, 'no X-Uncapture header');

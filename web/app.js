@@ -723,6 +723,7 @@ function applyLibrary(lib, keepId) {
   S.focus = c && keepId ? Math.max(0, c.indexOf(keepId)) : 0;
   S.dailyMarked = false;
   updateWhere();
+  startSharp();
 }
 
 // The window or a filter changed: cluster again, staying where you were.
@@ -1337,6 +1338,101 @@ function schedulePreheat() {
     }
     if (ids.length) api('POST', `/api/preheat?px=1024&ids=${ids.join(',')}`).catch(() => {});
   }, 600);
+}
+
+/* ------------------------------------------------------------ sharp copies (daily cleanup) */
+
+/* Display-size pictures are local only, and with "Optimize Mac Storage"
+   many photos have only small renditions on the Mac. Opening a day asks the
+   server for a sharp copy of each of its photos (up to SHARP_MAX, from where
+   you are on), downloaded from iCloud in the background. Each one on screen
+   is swapped for its sharp copy as it arrives, in place. */
+const SHARP_MAX = 300;
+const SH = { job: 0, key: '', timer: 0, seen: new Set(), hideTimer: 0 };
+
+function startSharp() {
+  const ids = [];
+  if (S.settings.daily) {
+    for (let d = 0; d < S.clusters.length && ids.length < SHARP_MAX; d++) {
+      for (const id of S.clusters[(S.idx + d) % S.clusters.length]) {
+        if (ids.length < SHARP_MAX && S.byId.get(id)?.kind !== 'video') ids.push(id);
+      }
+    }
+  }
+  const key = [...ids].sort().join(',');
+  if (key === SH.key) return;
+  SH.key = key;
+  SH.seen = new Set();
+  clearTimeout(SH.timer);
+  $('#c-sharp').hidden = true;
+  // (an empty list stops the last one: not in daily cleanup any more)
+  api('POST', '/api/sharp', { ids })
+    .then((r) => {
+      SH.job = r.job;
+      if (r.total) pollSharp();
+    })
+    .catch(() => {});
+}
+
+async function pollSharp() {
+  clearTimeout(SH.timer);
+  const r = await api('GET', '/api/sharp').catch(() => null);
+  if (!r || r.job !== SH.job) return;
+  const fresh = r.ready.filter((id) => !SH.seen.has(id));
+  fresh.forEach((id) => SH.seen.add(id));
+  if (fresh.length) sharpened(new Set(fresh));
+  const box = $('#c-sharp');
+  clearTimeout(SH.hideTimer);
+  box.hidden = false;
+  if (r.running) {
+    box.textContent = `sharper copies from iCloud: ${fmtN(r.done)} of ${fmtN(r.total)}`;
+    SH.timer = setTimeout(pollSharp, 700);
+  } else {
+    box.textContent = `${fmtN(r.done)} sharp ${r.done === 1 ? 'copy' : 'copies'}${r.failed ? ` · ${fmtN(r.failed)} unavailable` : ''}`;
+    SH.hideTimer = setTimeout(() => (box.hidden = true), 4000);
+  }
+}
+
+const idOfUrl = (url) => (url.match(/^\/api\/img\/([0-9a-f]+)\?px=/) || [])[1];
+
+// Forget the low-resolution copies of these photos; swap the ones on screen.
+function sharpened(ids) {
+  for (const [url, e] of [...imageCache]) {
+    if (ids.has(idOfUrl(url))) {
+      drop(e);
+      imageCache.delete(url);
+    }
+  }
+  for (const url of [...DISP.keys()]) if (ids.has(idOfUrl(url))) DISP.delete(url);
+  const c = cur();
+  if (!c || $('#viewer').hidden) return;
+  if (S.solo) {
+    const id = focusedId();
+    const frame = $('#solo-frame');
+    if (!ids.has(id) || frame.dataset.level === 'full' || frame.dataset.level === 'video') return;
+    getImage(soloUrl(id), 0.05).promise.then((img) => {
+      if (!S.solo || focusedId() !== id || frame.dataset.id !== id || frame.dataset.level === 'full' || !img.naturalWidth) return;
+      const old = frame.firstElementChild;
+      img.style.width = old ? old.style.width : '';
+      img.style.height = old ? old.style.height : '';
+      img.style.objectFit = 'cover';
+      img.classList.remove('lowres');
+      frame.dataset.level = 'preview';
+      frame.replaceChildren(onScreen(img));
+    });
+    return;
+  }
+  const token = renderToken;
+  for (const p of plan(c)) {
+    if (!ids.has(p.id)) continue;
+    getImage(p.url, 0.05).promise.then((img) => {
+      const frame = document.querySelector(`#stage .frame[data-id="${p.id}"]`);
+      if (token !== renderToken || !frame || !img.naturalWidth) return;
+      const old = frame.querySelector('img, canvas');
+      if (old) old.replaceWith(onScreen(img));
+      else frame.prepend(onScreen(img));
+    });
+  }
 }
 
 /* ------------------------------------------------------------ viewer: render */

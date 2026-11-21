@@ -100,6 +100,11 @@ pub trait PhotoSource: Send + Sync {
     fn on_change(&self, f: Box<dyn Fn() + Send + Sync>);
     /// sets or clears the heart in Photos (the same favorite Photos shows)
     fn set_favorite(&self, ids: &[AssetId], on: bool) -> Result<(), String>;
+    /// a sharp copy at about `px`, downloading from iCloud if need be (for
+    /// daily cleanup's prefetch; `image` with a size never downloads)
+    fn download(&self, id: &AssetId, px: u32) -> Option<Vec<u8>> {
+        self.image(id, Some(px), std::sync::Arc::new(|_| {}))
+    }
     /// warm the source's own cache for photos about to be shown
     fn preheat(&self, _ids: &[AssetId], _px: u32) {}
     /// file sizes in bytes; `None` where only an estimate is possible

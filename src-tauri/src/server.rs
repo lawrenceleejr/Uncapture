@@ -72,8 +72,40 @@ struct Lib {
     fetch_ms: u64,
 }
 
+/* Sharp copies for daily cleanup. Display-size images are local only, and
+   with "Optimize Mac Storage" many photos only have small renditions on the
+   Mac. Opening a day asks for a sharp copy of each of its photos (up to
+   SHARP_MAX), downloaded in the background a few at a time and kept on disk;
+   /api/img then serves those, resized to the size asked for. */
+const SHARP_PX: u32 = 2048;
+pub const SHARP_MAX: usize = 300;
+const SHARP_WORKERS: usize = 3;
+const SHARP_KEEP: usize = 1500;
+
+#[derive(Default)]
+struct Sharp {
+    job: u64,
+    queue: std::collections::VecDeque<String>,
+    total: usize,
+    done: usize,
+    failed: usize,
+    /// ids whose sharp copy is ready, in this job
+    ready: Vec<String>,
+    workers: usize,
+}
+
+fn sharp_dir() -> PathBuf {
+    data_dir().join("sharp")
+}
+fn sharp_file(id: &str) -> PathBuf {
+    sharp_dir().join(format!("{}.jpg", id))
+}
+
 pub struct App {
     src: Arc<dyn PhotoSource>,
+    sharp: Mutex<Sharp>,
+    /// sharp copies resized for the page: (id, px) → JPEG, a few hundred
+    sharp_sized: Mutex<(HashMap<(String, u32), Arc<Vec<u8>>>, std::collections::VecDeque<(String, u32)>)>,
     lib: RwLock<Lib>,
     state: Mutex<State>,
     progress: Mutex<HashMap<String, f64>>,
@@ -127,6 +159,8 @@ impl App {
         let state: State = fs::read(data_dir().join("state.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let app = Arc::new(App {
             src,
+            sharp: Mutex::new(Sharp::default()),
+            sharp_sized: Mutex::new((HashMap::new(), Default::default())),
             lib: RwLock::new(Lib::default()),
             state: Mutex::new(state),
             progress: Mutex::new(HashMap::new()),
@@ -204,6 +238,88 @@ impl App {
         });
     }
 
+    /// A new list of photos to make sharp copies of (it replaces the last).
+    fn start_sharp(self: &Arc<Self>, ids: Vec<String>) -> Value {
+        let wanted: Vec<String> = {
+            let lib = self.lib.read().unwrap();
+            ids.into_iter().filter(|id| lib.by_id.get(id).map(|&i| lib.assets[i].kind != Kind::Video).unwrap_or(false)).take(SHARP_MAX).collect()
+        };
+        let mut s = self.sharp.lock().unwrap();
+        s.job += 1;
+        s.total = wanted.len();
+        s.done = 0;
+        s.failed = 0;
+        s.ready.clear();
+        s.queue.clear();
+        for id in wanted {
+            if sharp_file(&id).exists() {
+                s.done += 1;
+                s.ready.push(id);
+            } else {
+                s.queue.push_back(id);
+            }
+        }
+        while s.workers < SHARP_WORKERS && s.workers < s.queue.len() {
+            s.workers += 1;
+            let app = self.clone();
+            std::thread::spawn(move || app.sharp_worker());
+        }
+        json!({ "job": s.job, "total": s.total })
+    }
+
+    fn sharp_worker(&self) {
+        let _ = fs::create_dir_all(sharp_dir());
+        loop {
+            let (job, id) = {
+                let mut s = self.sharp.lock().unwrap();
+                match s.queue.pop_front() {
+                    Some(id) => (s.job, id),
+                    None => {
+                        s.workers -= 1;
+                        let last = s.workers == 0;
+                        drop(s);
+                        if last {
+                            prune_sharp();
+                        }
+                        return;
+                    }
+                }
+            };
+            let got = self.src.download(&id, SHARP_PX);
+            if let Some(b) = &got {
+                write_atomic(&sharp_file(&id), b);
+            }
+            let mut s = self.sharp.lock().unwrap();
+            if s.job == job {
+                if got.is_some() {
+                    s.done += 1;
+                    s.ready.push(id);
+                } else {
+                    s.failed += 1;
+                }
+            }
+        }
+    }
+
+    /// The sharp copy of a photo at about `px`, if there is one.
+    fn sharp_at(&self, id: &str, px: u32) -> Option<Arc<Vec<u8>>> {
+        let key = (id.to_string(), px);
+        if let Some(b) = self.sharp_sized.lock().unwrap().0.get(&key) {
+            return Some(b.clone());
+        }
+        let bytes = fs::read(sharp_file(id)).ok()?;
+        let out = Arc::new(if px < SHARP_PX * 4 / 5 { crate::resize::resize_jpeg(&bytes, px, 1).unwrap_or(bytes) } else { bytes });
+        let mut c = self.sharp_sized.lock().unwrap();
+        c.0.insert(key.clone(), out.clone());
+        c.1.push_back(key);
+        while c.1.len() > 300 {
+            if let Some(old) = c.1.pop_front() {
+                c.0.remove(&old);
+            }
+        }
+        Some(out)
+    }
+
     fn marks(&self) -> (HashSet<String>, HashSet<String>) {
         let s = self.state.lock().unwrap();
         (s.keep.iter().map(|l| short_id(l)).collect(), s.del.iter().map(|l| short_id(l)).collect())
@@ -271,6 +387,19 @@ fn send_json(req: Request, code: u16, body: Value) {
 
 fn err(req: Request, code: u16, msg: &str) {
     send_json(req, code, json!({ "error": msg }));
+}
+
+// keep the newest sharp copies only
+fn prune_sharp() {
+    let Ok(rd) = fs::read_dir(sharp_dir()) else { return };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = rd.flatten().filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
+    if files.len() <= SHARP_KEEP {
+        return;
+    }
+    files.sort();
+    for (_, f) in &files[..files.len() - SHARP_KEEP] {
+        let _ = fs::remove_file(f);
+    }
 }
 
 fn read_json(req: &mut Request) -> Value {
@@ -490,7 +619,9 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 app.progress.lock().unwrap().remove(&id);
                 out
             } else {
-                app.src.image(&id, Some(px.unwrap_or(1600)), Arc::new(|_| {}))
+                let px = px.unwrap_or(1600);
+                // a sharp copy downloaded for daily cleanup, else what's on the Mac
+                app.sharp_at(&id, px).map(|b| b.to_vec()).or_else(|| app.src.image(&id, Some(px), Arc::new(|_| {})))
             };
             return match bytes {
                 Some(b) => {
@@ -710,6 +841,14 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 }
                 Err(e) => err(req, 500, &e),
             }
+        }
+        ("/api/sharp", _, true, _) => {
+            let body = read_json(&mut req);
+            send_json(req, 200, app.start_sharp(ids_of(&body["ids"])))
+        }
+        ("/api/sharp", true, _, _) => {
+            let s = app.sharp.lock().unwrap();
+            send_json(req, 200, json!({ "job": s.job, "total": s.total, "done": s.done, "failed": s.failed, "ready": s.ready, "running": !s.queue.is_empty() || s.workers > 0 }))
         }
         ("/api/first-delete-seen", _, true, _) => {
             app.state.lock().unwrap().first_delete_seen = true;
