@@ -82,6 +82,35 @@ pub struct DeleteOutcome {
 /// Download progress, 0..1; may be called from any thread.
 pub type Progress = std::sync::Arc<dyn Fn(f64) + Send + Sync>;
 
+/// One of a kept photo's files: its Photos resource type, the file in the
+/// copy's folder, and the name Photos had for it.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct KeptFile {
+    pub kind: i64,
+    pub file: String,
+    pub name: String,
+}
+
+/// A photo copied for undo: its files, and what Photos knew about it.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Kept {
+    pub files: Vec<KeptFile>,
+    /// ms since 1970
+    pub created: i64,
+    #[serde(default)]
+    pub location: Option<(f64, f64)>,
+    #[serde(default)]
+    pub favorite: bool,
+    #[serde(default)]
+    pub hidden: bool,
+    /// the user's own albums it was in (localIdentifiers)
+    #[serde(default)]
+    pub albums: Vec<String>,
+    /// anything else the source keeps (the fake library: its fake.json entry)
+    #[serde(default)]
+    pub extra: serde_json::Value,
+}
+
 pub trait PhotoSource: Send + Sync {
     /// "photos" or "fake": shown in the UI and used by tests
     fn name(&self) -> &'static str;
@@ -117,6 +146,18 @@ pub trait PhotoSource: Send + Sync {
     }
     /// warm the source's own cache for photos about to be shown
     fn preheat(&self, _ids: &[AssetId], _px: u32) {}
+    /// For undo: copies of the photo's own files (original, edits, Live Photo
+    /// video) written into `dir`, and what Photos knows about it, enough to
+    /// add it back with `restore`. May download from iCloud. None: no copy.
+    fn keep_copy(&self, _id: &AssetId, _dir: &std::path::Path) -> Option<Kept> {
+        None
+    }
+    /// Adds a photo kept with `keep_copy` back to the library (a new item:
+    /// Photos can't recover from Recently Deleted for an app); its new
+    /// localIdentifier.
+    fn restore(&self, _dir: &std::path::Path, _kept: &Kept) -> Result<String, String> {
+        Err("can't put photos back here".into())
+    }
     /// file sizes in bytes; `None` where only an estimate is possible
     fn bytes(&self, ids: &[AssetId]) -> Vec<Option<u64>> {
         ids.iter().map(|_| None).collect()

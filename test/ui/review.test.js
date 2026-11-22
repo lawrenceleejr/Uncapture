@@ -77,6 +77,7 @@ test('review and delete: exactly what is marked goes, after the confirmation', a
   const big = await page.$eval('#cleared .cleared .amount', (e) => e.textContent);
   assert.equal(big, cleared >= 1e6 ? `${Math.round(cleared / 1e6)} MB` : `${Math.round(cleared / 1e3)} KB`);
   assert.match(await page.$eval('#cleared .cleared', (e) => e.textContent), / cleared$/);
+  assert.equal(await page.$eval('#cleared .undo', (e) => e.textContent), 'Undo B puts them back, until your next delete.');
   assert.deepEqual(trash(), ['IMG_0003.JPG', 'IMG_0004.JPG', 'IMG_0005.JPG', 'IMG_0006.JPG']);
   for (const kept of ['IMG_0001.JPG', 'IMG_0002.JPG', 'IMG_0007.JPG']) assert.ok(fs.existsSync(path.join(lib, kept)), kept);
   assert.equal(await page.evaluate(() => S.assets.length), photos.length - 4);
@@ -95,6 +96,7 @@ test('review and delete: exactly what is marked goes, after the confirmation', a
   assert.equal(await page.$eval('#saved-n', (e) => e.textContent), big);
   assert.match(await page.$eval('#saved-sub', (e) => e.textContent), /^4 photos since /);
   assert.ok(await page.$eval('#saved-spark path', (p) => p.getAttribute('d').includes('V')));
+  assert.equal(await page.$eval('#saved-undo', (b) => b.textContent), 'Undo the last delete: 4 photos B');
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -144,6 +146,38 @@ test('a delete from the large view comes back to the large view, on the same pho
   await page.waitForSelector('#solo:not([hidden])');
   assert.equal(await page.$eval('#solo-frame', (f) => f.dataset.id), keeper);
   assert.equal(await page.evaluate(() => S.settings.clustersOnly), false, 'the same filters');
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test('B puts the last delete back, marked to keep, and the view stays where it was', async () => {
+  const { page, errors } = await openStart(browser, base);
+  // the last delete (the large-view test's) took one photo of the last cluster
+  assert.equal(await page.$eval('#saved-undo', (b) => b.textContent), 'Undo the last delete: 1 photo B');
+  const n = await page.evaluate(() => S.assets.length);
+  const inTrash = trash();
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#viewer:not([hidden])');
+  await page.waitForFunction(() => S.clusters.length > 0);
+  await page.keyboard.press('End');
+  await page.waitForFunction(() => cur().length === 1);
+  const t = await page.evaluate(() => S.byId.get(cur()[0]).t);
+  await page.keyboard.press('b');
+  await page.waitForFunction(() => /^1 photo put back/.test(document.querySelector('#cleared').textContent), null, { timeout: 10000 });
+  assert.match(await page.$eval('#cleared', (e) => e.textContent), /new items in Photos, with their dates, places, hearts and albums/);
+  // back in the folder, in its cluster, which is where you still are
+  const back = inTrash.filter((f) => fs.existsSync(path.join(lib, f)));
+  assert.equal(back.length, 1);
+  assert.equal(await page.evaluate(() => S.assets.length), n + 1);
+  assert.equal(await page.$eval('#viewer', (v) => v.hidden), false);
+  assert.equal(await page.evaluate(() => cur().length), 2);
+  assert.equal(await page.evaluate(() => S.byId.get(cur()[0]).t), t);
+  assert.equal(await page.evaluate(() => cur().filter((id) => S.keep.has(id)).length), 2, 'both kept: nothing marked to go');
+  // once only
+  assert.equal(await page.evaluate(() => S.server.undo), null);
+  await page.keyboard.press('b');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => S.assets.length), n + 1);
   assert.deepEqual(errors, []);
   await page.close();
 });

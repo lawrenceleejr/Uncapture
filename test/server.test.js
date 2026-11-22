@@ -409,6 +409,79 @@ test('delete: a photo gone from the library meanwhile is skipped and reported', 
   assert.equal(r.missing, 1);
 });
 
+test('undo: the last delete is put back from copies kept before it', async () => {
+  const dir = path.join(tmp, 'undo');
+  const t = Date.UTC(2023, 5, 1, 9, 0, 0);
+  const p = [];
+  const add = (name, dt, extra, gps) => p.push({ name, t: t + dt, tz: 0, thumb: thumbOf(name), extra, gps });
+  add('U1.JPG', 0);
+  add('U2.JPG', 2000, undefined, [35.96061, -83.92074]);
+  add('U3.JPG', 4000, { favorite: true });
+  add('V1.JPG', H);
+  add('V2.JPG', H + 2000);
+  writeLibrary(dir, p);
+  const home = path.join(tmp, 'home-undo');
+  const s = startServer(dir, { env: { UNCAPTURE_TODAY: '2025-06-01' }, home });
+  const b = await s.base;
+  const call = async (m, u, body) => {
+    const r = await fetch(b + u, { method: m, headers: keyed(b, { 'X-Uncapture': '1', 'Content-Type': 'application/json' }), body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, data: await r.json() };
+  };
+  const id = (n) => fnv(n);
+  const undoDir = path.join(home, '.uncapture', 'undo');
+  try {
+    for (let i = 0; i < 50 && !(await call('GET', '/api/state')).data.library.loaded; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal((await call('GET', '/api/state')).data.undo, null, 'nothing to undo yet');
+    assert.equal((await call('POST', '/api/undo')).status, 404);
+    // U1 kept; U2 goes, and U3 (a favorite, marked D)
+    await call('PUT', '/api/marks', { keep: [id('U1.JPG')], del: [id('U3.JPG')], window: 60 });
+    const r = (await call('POST', '/api/delete', { ids: [id('U2.JPG'), id('U3.JPG')], window: 60, day: '06-01' })).data;
+    assert.equal(r.deleted, 2);
+    assert.deepEqual(r.undo, { photos: 2, bytes: r.bytes, date: '2025-06-01', notKept: 0 });
+    assert.deepEqual(fs.readdirSync(undoDir).sort(), ['batch.json', id('U2.JPG'), id('U3.JPG')].sort(), 'a copy of each');
+    assert.ok(!fs.existsSync(path.join(dir, 'U2.JPG')));
+    // a delete that's cancelled keeps the undo there was
+    await call('PUT', '/api/marks', { keep: [id('U1.JPG'), id('V1.JPG')], del: [], window: 60 });
+    fs.writeFileSync(path.join(dir, '.cancel-delete'), '');
+    assert.equal((await call('POST', '/api/delete', { ids: [id('V2.JPG')], window: 60 })).data.cancelled, true);
+    fs.unlinkSync(path.join(dir, '.cancel-delete'));
+    assert.equal((await call('GET', '/api/state')).data.undo.photos, 2);
+    assert.ok(!fs.existsSync(path.join(home, '.uncapture', 'undo-new')), 'its copies are dropped');
+    // undo: back in the library, with the heart, and no longer counted as cleared
+    const u = (await call('POST', '/api/undo')).data;
+    assert.equal(u.restored, 2);
+    assert.equal(u.failed, 0);
+    assert.equal(u.bytes, r.bytes);
+    assert.equal(u.allPhotos, 0);
+    assert.deepEqual(fs.readFileSync(path.join(dir, 'U2.JPG')), fs.readFileSync(path.join(dir, '.trash', 'U2.JPG')));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'fake.json'))).files['U3.JPG'].favorite, true);
+    const st = (await call('GET', '/api/state')).data;
+    assert.equal(st.undo, null);
+    assert.deepEqual(st.deletions, []);
+    assert.deepEqual(st.dailyLog, {}, 'the cleanup of 1 June is undone too');
+    assert.deepEqual(st.marks.keep.sort(), [id('U1.JPG'), id('U2.JPG'), id('U3.JPG')].sort(), 'what came back is kept, not marked to go again');
+    assert.ok(!fs.existsSync(undoDir));
+    for (let i = 0; i < 50; i++) {
+      const ids = (await call('GET', '/api/assets')).data.assets.map((a) => a[0]);
+      if (ids.includes(id('U2.JPG')) && ids.includes(id('U3.JPG'))) break;
+      assert.ok(i < 49, 'the library has them again');
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    assert.equal((await call('POST', '/api/undo')).status, 404, 'once');
+    // the next delete makes the next undo
+    const r2 = (await call('POST', '/api/delete', { ids: [id('V2.JPG')], window: 60 })).data;
+    assert.equal(r2.undo.photos, 1);
+    assert.deepEqual(fs.readdirSync(undoDir).sort(), ['batch.json', id('V2.JPG')].sort());
+    // and a delete asked without undo keeps no copies (and leaves no undo)
+    await call('PUT', '/api/marks', { keep: [id('U2.JPG')], del: [], window: 60 });
+    const r3 = (await call('POST', '/api/delete', { ids: [id('U1.JPG'), id('U3.JPG')], window: 60, undo: false })).data;
+    assert.equal(r3.deleted, 2);
+    assert.equal(r3.undo, null);
+  } finally {
+    s.proc.kill();
+  }
+});
+
 test('access: not asked yet, then asked and allowed; or denied', async () => {
   const dir = path.join(tmp, 'ask');
   writeLibrary(dir, [{ name: 'X.JPG', t: T0 }], { auth: 'notDetermined' });

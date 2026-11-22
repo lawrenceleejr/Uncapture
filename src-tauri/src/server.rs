@@ -130,6 +130,63 @@ pub struct App {
     /// printed by --serve) has it, and every /api request must carry it, so
     /// other programs on this Mac can't use Uncapture's Photos access.
     pub key: String,
+    /// copies for undo being made before a delete: (done, of)
+    undo_copying: Mutex<(usize, usize)>,
+    /// a delete and an undo never run at once
+    undo_lock: Mutex<()>,
+}
+
+/* Undo of the last delete. Apps can't recover photos from Recently Deleted,
+   so before a delete Uncapture keeps its own copy of each photo (its files,
+   date, place, heart, albums), in `undo/`, and undo adds them back as new
+   items. One batch: the next delete replaces it; it's dropped after a week. */
+const UNDO_BYTES: u64 = 4_000_000_000;
+const UNDO_DAYS: i64 = 7;
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct UndoPhoto {
+    id: String,
+    bytes: u64,
+    /// taken on the day a daily cleanup was cleaning up
+    of_day: bool,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct UndoBatch {
+    /// "YYYY-MM-DD" of the delete, and when (s since 1970)
+    date: String,
+    at: i64,
+    photos: Vec<UndoPhoto>,
+    /// deleted but not kept (over the cap, or the copy failed)
+    not_kept: usize,
+    /// its entry in `deletions`, and in `daily_log[day]`
+    deletion: Option<usize>,
+    day: Option<String>,
+    day_entry: Option<usize>,
+}
+
+fn undo_dir() -> PathBuf {
+    data_dir().join("undo")
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+fn undo_batch() -> Option<UndoBatch> {
+    let b: UndoBatch = fs::read(undo_dir().join("batch.json")).ok().and_then(|b| serde_json::from_slice(&b).ok())?;
+    if b.photos.is_empty() || unix_now() - b.at > UNDO_DAYS * 86_400 {
+        let _ = fs::remove_dir_all(undo_dir());
+        return None;
+    }
+    Some(b)
+}
+
+fn undo_json(b: &Option<UndoBatch>) -> Value {
+    match b {
+        Some(b) => json!({ "photos": b.photos.len(), "bytes": b.photos.iter().map(|p| p.bytes).sum::<u64>(), "date": b.date, "notKept": b.not_kept }),
+        None => Value::Null,
+    }
 }
 
 /// 128 random bits, hex.
@@ -159,12 +216,10 @@ pub fn data_dir() -> PathBuf {
         home().join(".uncapture")
     }
 }
-fn write_atomic(path: &Path, data: &[u8]) {
+fn write_atomic(path: &Path, data: &[u8]) -> bool {
     let _ = fs::create_dir_all(path.parent().unwrap());
     let tmp = path.with_extension("tmp");
-    if fs::write(&tmp, data).is_ok() {
-        let _ = fs::rename(&tmp, path);
-    }
+    fs::write(&tmp, data).is_ok() && fs::rename(&tmp, path).is_ok()
 }
 
 /// The Mac's UTC offset (minutes) at an instant: daylight saving included.
@@ -205,7 +260,12 @@ impl App {
             refresh: Mutex::new((false, false)),
             shell,
             window: std::sync::OnceLock::new(),
+            undo_copying: Mutex::new((0, 0)),
+            undo_lock: Mutex::new(()),
         });
+        // a week-old undo, or one left half-made by a crash, is dropped
+        let _ = undo_batch();
+        let _ = fs::remove_dir_all(data_dir().join("undo-new"));
         // the asset list cached on disk: the library shows at once, then refreshes
         if app.src.authorization().allowed() {
             if let Some(cached) = fs::read(app.cache_file()).ok().and_then(|b| serde_json::from_slice::<Vec<Asset>>(&b).ok()) {
@@ -658,6 +718,7 @@ fn state_json(app: &App) -> Value {
         "deletions": s.deletions,
         "today": fmt_day(today()),
         "firstDeleteSeen": s.first_delete_seen,
+        "undo": undo_json(&undo_batch()),
         "windows": cluster::WINDOWS,
         "library": { "version": lib.version, "count": lib.assets.len(), "loading": lib.loading, "loaded": lib.loaded, "fetchMs": lib.fetch_ms },
         "marks": {
@@ -971,6 +1032,32 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 };
                 app.sizes_of(&idx).into_iter().collect()
             };
+            let _one = app.undo_lock.lock().unwrap();
+            // copies for undo first (up to UNDO_BYTES): they become the undo
+            // batch only if the delete happens
+            let staging = data_dir().join("undo-new");
+            let _ = fs::remove_dir_all(&staging);
+            let mut kept: Vec<UndoPhoto> = Vec::new();
+            if body["undo"].as_bool().unwrap_or(true) {
+                let mut total = 0u64;
+                *app.undo_copying.lock().unwrap() = (0, targets.len());
+                for (k, id) in targets.iter().enumerate() {
+                    let size = sizes.get(id).copied().unwrap_or(0);
+                    let dir = staging.join(id);
+                    let copy = if total + size <= UNDO_BYTES { app.src.keep_copy(id, &dir) } else { None };
+                    match copy.and_then(|c| serde_json::to_vec(&c).ok()) {
+                        Some(meta) if write_atomic(&dir.join("kept.json"), &meta) => {
+                            total += size;
+                            kept.push(UndoPhoto { id: id.clone(), bytes: size, of_day: of_day.contains(id) });
+                        }
+                        _ => {
+                            let _ = fs::remove_dir_all(&dir);
+                        }
+                    }
+                    *app.undo_copying.lock().unwrap() = (k + 1, targets.len());
+                }
+            }
+            *app.undo_copying.lock().unwrap() = (0, 0);
             // macOS shows its own confirmation here; this waits for the answer
             let out = app.src.delete(&targets);
             let bytes: u64 = out.deleted.iter().filter_map(|id| sizes.get(id)).sum();
@@ -981,13 +1068,36 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 s.del.retain(|l| !gone.contains(l));
                 s.first_delete_seen = true;
                 let n = out.deleted.iter().filter(|id| of_day.contains(*id)).count();
+                let mut day_entry = None;
                 if let (Some((m, d)), true) = (daily_day, n > 0) {
-                    s.daily_log.entry(format!("{:02}-{:02}", m, d)).or_default().push(DailyEntry { date: fmt_day(today()), deleted: n });
+                    let log = s.daily_log.entry(format!("{:02}-{:02}", m, d)).or_default();
+                    log.push(DailyEntry { date: fmt_day(today()), deleted: n });
+                    day_entry = Some(log.len() - 1);
                 }
                 if !out.deleted.is_empty() {
                     s.deletions.push(Deletion { date: fmt_day(today()), photos: out.deleted.len(), bytes });
+                    // the copies of what went are the new undo batch
+                    let gone: HashSet<&String> = out.deleted.iter().collect();
+                    for p in kept.iter().filter(|p| !gone.contains(&p.id)) {
+                        let _ = fs::remove_dir_all(staging.join(&p.id));
+                    }
+                    kept.retain(|p| gone.contains(&p.id));
+                    let batch = UndoBatch {
+                        date: fmt_day(today()),
+                        at: unix_now(),
+                        not_kept: out.deleted.len() - kept.len(),
+                        photos: std::mem::take(&mut kept),
+                        deletion: Some(s.deletions.len() - 1),
+                        day: day_entry.map(|_| daily_day.map(|(m, d)| format!("{:02}-{:02}", m, d))).flatten(),
+                        day_entry,
+                    };
+                    let _ = fs::remove_dir_all(undo_dir());
+                    if !batch.photos.is_empty() && write_atomic(&staging.join("batch.json"), &serde_json::to_vec(&batch).unwrap_or_default()) {
+                        let _ = fs::rename(&staging, undo_dir());
+                    }
                 }
             }
+            let _ = fs::remove_dir_all(&staging);
             let (all_photos, all_bytes) = {
                 let s = app.state.lock().unwrap();
                 (s.deletions.iter().map(|d| d.photos).sum::<usize>(), s.deletions.iter().map(|d| d.bytes).sum::<u64>())
@@ -999,8 +1109,82 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 200,
                 json!({
                     "deleted": out.deleted.len(), "missing": out.missing.len(), "skipped": skipped, "cancelled": out.cancelled, "error": out.error,
-                    "bytes": bytes, "allPhotos": all_photos, "allBytes": all_bytes,
+                    "bytes": bytes, "allPhotos": all_photos, "allBytes": all_bytes, "undo": undo_json(&undo_batch()),
                 }),
+            )
+        }
+        ("/api/undo", true, _, _) => {
+            let (done, of) = *app.undo_copying.lock().unwrap();
+            send_json(req, 200, json!({ "undo": undo_json(&undo_batch()), "copying": [done, of] }))
+        }
+        ("/api/undo", _, true, _) => {
+            // the last delete's photos, added back from Uncapture's copies
+            let _one = app.undo_lock.lock().unwrap();
+            let Some(mut batch) = undo_batch() else { return err(req, 404, "nothing to undo") };
+            let (mut restored, mut bytes, mut of_day) = (0usize, 0u64, 0usize);
+            let mut left = Vec::new();
+            let mut error = None;
+            let mut back: Vec<String> = Vec::new();
+            for p in std::mem::take(&mut batch.photos) {
+                let dir = undo_dir().join(&p.id);
+                let kept: Option<Kept> = fs::read(dir.join("kept.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
+                match kept.ok_or_else(|| "the copy is missing".to_string()).and_then(|k| app.src.restore(&dir, &k)) {
+                    Ok(local) => {
+                        back.push(local);
+                        restored += 1;
+                        bytes += p.bytes;
+                        of_day += p.of_day as usize;
+                        let _ = fs::remove_dir_all(&dir);
+                    }
+                    Err(e) => {
+                        error = Some(e);
+                        left.push(p);
+                    }
+                }
+            }
+            // what came back no longer counts as cleared; it's marked to keep
+            // (beside its cluster's keeper it would be marked to go again)
+            {
+                let mut s = app.state.lock().unwrap();
+                for l in back.into_iter().filter(|l| !l.is_empty()) {
+                    s.del.retain(|d| d != &l);
+                    if !s.keep.contains(&l) {
+                        s.keep.push(l);
+                    }
+                }
+                if let Some(d) = batch.deletion.and_then(|i| s.deletions.get_mut(i)) {
+                    d.photos = d.photos.saturating_sub(restored);
+                    d.bytes = d.bytes.saturating_sub(bytes);
+                }
+                if let (Some(day), Some(i)) = (&batch.day, batch.day_entry) {
+                    if let Some(e) = s.daily_log.get_mut(day).and_then(|l| l.get_mut(i)) {
+                        e.deleted = e.deleted.saturating_sub(of_day);
+                    }
+                }
+                if left.is_empty() {
+                    s.deletions.retain(|d| d.photos > 0);
+                    for l in s.daily_log.values_mut() {
+                        l.retain(|e| e.deleted > 0);
+                    }
+                    s.daily_log.retain(|_, l| !l.is_empty());
+                }
+            }
+            batch.photos = left;
+            if batch.photos.is_empty() {
+                let _ = fs::remove_dir_all(undo_dir());
+            } else {
+                write_atomic(&undo_dir().join("batch.json"), &serde_json::to_vec(&batch).unwrap_or_default());
+            }
+            let (all_photos, all_bytes) = {
+                let s = app.state.lock().unwrap();
+                (s.deletions.iter().map(|d| d.photos).sum::<usize>(), s.deletions.iter().map(|d| d.bytes).sum::<u64>())
+            };
+            app.save_state();
+            app.refresh();
+            send_json(
+                req,
+                200,
+                json!({ "restored": restored, "failed": batch.photos.len(), "error": error, "bytes": bytes, "allPhotos": all_photos, "allBytes": all_bytes, "undo": undo_json(&undo_batch()) }),
             )
         }
         ("/api/favorite", _, true, _) => {

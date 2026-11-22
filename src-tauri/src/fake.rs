@@ -319,6 +319,48 @@ impl PhotoSource for FakeSource {
         out
     }
 
+    // a copy of the file and its fake.json entry
+    fn keep_copy(&self, id: &AssetId, dir: &Path) -> Option<Kept> {
+        // (the time is the file's own EXIF, which goes back with it)
+        let file = self.files.read().unwrap().get(id)?.file.clone();
+        simulate_download(&|_| {});
+        fs::create_dir_all(dir).ok()?;
+        fs::copy(&file, dir.join("0")).ok()?;
+        let extra = self.manifest().get("files").and_then(|f| f.get(self.rel(&file))).cloned().unwrap_or(Value::Null);
+        let favorite = extra.get("favorite").and_then(|v| v.as_bool()).unwrap_or(false);
+        Some(Kept { files: vec![KeptFile { kind: 1, file: "0".into(), name: self.rel(&file) }], favorite, extra, ..Default::default() })
+    }
+
+    // back into the folder under its own name (or beside it, if that's taken)
+    fn restore(&self, dir: &Path, kept: &Kept) -> Result<String, String> {
+        let f = kept.files.first().ok_or("no file")?;
+        let mut rel = f.name.clone();
+        while self.dir.join(&rel).exists() {
+            rel = match rel.rsplit_once('/') {
+                Some((d, n)) => format!("{}/restored-{}", d, n),
+                None => format!("restored-{}", rel),
+            };
+        }
+        let dest = self.dir.join(&rel);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::copy(dir.join(&f.file), &dest).map_err(|e| e.to_string())?;
+        if !kept.extra.is_null() {
+            let mut m = self.manifest();
+            if !m.is_object() {
+                m = serde_json::json!({});
+            }
+            let files = m.as_object_mut().unwrap().entry("files").or_insert_with(|| serde_json::json!({}));
+            if let Some(o) = files.as_object_mut() {
+                o.insert(rel.clone(), kept.extra.clone());
+            }
+            fs::write(self.dir.join("fake.json"), serde_json::to_vec_pretty(&m).unwrap()).map_err(|e| e.to_string())?;
+        }
+        self.notify();
+        Ok(rel)
+    }
+
     fn on_change(&self, f: Box<dyn Fn() + Send + Sync>) {
         self.listeners.lock().unwrap().push(f);
         let mut w = self.watching.lock().unwrap();

@@ -255,6 +255,9 @@ function renderSaved() {
   $('#saved-n').textContent = fmtBytes(bytes);
   const first = log[0].date;
   $('#saved-sub').textContent = `${fmtN(photos)} photo${photos === 1 ? '' : 's'} since ${niceDay(first)} · the last ${fmtBytes(log.at(-1).bytes)} on ${niceDay(log.at(-1).date)}`;
+  const u = S.server.undo;
+  $('#saved-undo').hidden = !u;
+  if (u) $('#saved-undo-n').textContent = `${fmtN(u.photos)} photo${u.photos === 1 ? '' : 's'}`;
   const svg = $('#saved-spark');
   const W = 180;
   const H = 28;
@@ -551,6 +554,7 @@ function bindStart() {
   $('#opt-shots').onchange = (e) => setScreenshotsOnly(e.target.checked);
   $('#start-open').onclick = () => openViewer();
   $('#start-review').onclick = () => openReview();
+  $('#saved-undo').onclick = () => doUndo();
   $('#start-return').onclick = () => backToViewer();
 }
 
@@ -2368,8 +2372,22 @@ async function doDelete() {
   btn.disabled = true;
   const res = $('#review-result');
   res.classList.remove('done');
-  res.textContent = `Waiting for macOS to confirm deleting ${fmtN(ids.length)}…`;
+  res.textContent = `Keeping a copy of each so the delete can be undone…`;
+  // first the copies for undo (from iCloud if need be), then macOS asks
+  const confirmMsg = `Waiting for macOS to confirm deleting ${fmtN(ids.length)}…`;
+  let pending = true;
+  const poll = async () => {
+    while (pending) {
+      const u = await api('GET', '/api/undo').catch(() => null);
+      if (!pending) break;
+      const [done, of] = (u && u.copying) || [0, 0];
+      res.textContent = of && done < of ? `Keeping a copy of each so the delete can be undone: ${fmtN(done)} of ${fmtN(of)}…` : confirmMsg;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  };
+  poll();
   const r = await api('POST', '/api/delete', { ids, window: S.settings.window, day: S.settings.daily ? dailyDay() : undefined }).catch((e) => ({ error: e.message, deleted: 0 }));
+  pending = false;
   RV.busy = false;
   res.replaceChildren();
   if (r.cancelled) res.textContent = 'Nothing was deleted: the confirmation was cancelled.';
@@ -2410,6 +2428,72 @@ function showCleared(r) {
   if (r.skipped) msg += ` ${fmtN(r.skipped)} were no longer marked and stayed.`;
   box.append(el('div', 'what', msg));
   if (r.deleted && r.allBytes > r.bytes) box.append(el('div', 'total', `In all, Uncapture has cleared ${fmtBytes(r.allBytes)}: ${fmtN(r.allPhotos)} photos.`));
+  if (r.undo && r.undo.photos) box.append(undoLine(r.undo));
+  box.hidden = false;
+  clearTimeout(clearedTimer);
+  clearedTimer = setTimeout(() => (box.hidden = true), 12000);
+}
+
+/* ------------------------------------------------------------ undo the last delete
+
+   Apps can't take photos back out of Recently Deleted, so before a delete the
+   server keeps its own copy of each photo (files, date, place, heart,
+   albums); undo adds them back to Photos as new items. One batch, until the
+   next delete, for up to a week. */
+const UNDO = { busy: false };
+
+function undoLine(u) {
+  const line = el('div', 'undo');
+  const b = el('button', 'link', 'Undo ');
+  b.append(el('kbd', null, 'B'));
+  b.onclick = (e) => {
+    e.stopPropagation();
+    doUndo();
+  };
+  const n = `${fmtN(u.photos)} photo${u.photos === 1 ? '' : 's'}`;
+  line.append(b, u.notKept ? ` puts back ${n}; ${fmtN(u.notKept)} more couldn't be copied first (they're in Recently Deleted).` : ` puts ${u.photos === 1 ? 'it' : 'them'} back, until your next delete.`);
+  return line;
+}
+
+async function doUndo() {
+  const u = S.server && S.server.undo;
+  if (!u || UNDO.busy || RV.busy) return;
+  UNDO.busy = true;
+  if (!$('#review').hidden) closeReview();
+  const inViewer = !$('#viewer').hidden && S.opened;
+  const anchor = inViewer ? anchorHere() : null;
+  const box = $('#cleared');
+  clearTimeout(clearedTimer);
+  box.replaceChildren(el('div', 'what', `Putting back ${fmtN(u.photos)} photo${u.photos === 1 ? '' : 's'}…`));
+  box.hidden = false;
+  const r = await api('POST', '/api/undo').catch((e) => ({ error: e.message, restored: 0, failed: u.photos }));
+  const st = await api('GET', '/api/state').catch(() => null);
+  if (st) {
+    S.server = st;
+    S.keep = new Set(st.marks.keep);
+    S.del = new Set(st.marks.del);
+  }
+  if (r.restored) {
+    await waitForLibrary();
+    await loadAssets();
+    if (inViewer && !$('#viewer').hidden) await recluster(null, anchor);
+    else if (!$('#start').hidden) showStart();
+  }
+  UNDO.busy = false;
+  showUndone(r);
+}
+
+function showUndone(r) {
+  const box = $('#cleared');
+  box.replaceChildren();
+  if (r.restored) {
+    const head = el('div', 'cleared');
+    head.append(el('span', 'amount num', fmtN(r.restored)), ` photo${r.restored === 1 ? '' : 's'} put back`);
+    box.append(head);
+    box.append(el('div', 'what', "They're new items in Photos, with their dates, places, hearts and albums. The deleted ones stay in Recently Deleted for 30 days: don't recover those too, or you'll have two of each."));
+  }
+  if (r.failed) box.append(el('div', 'what', `${r.restored ? fmtN(r.failed) + " couldn't be put back" : 'Nothing was put back'}${r.error ? '. Photos said: ' + r.error : ''}. Undo again (B) to try once more.`));
+  if (r.restored) box.append(el('div', 'total', `In all, Uncapture has cleared ${fmtBytes(r.allBytes || 0)}: ${fmtN(r.allPhotos || 0)} photos.`));
   box.hidden = false;
   clearTimeout(clearedTimer);
   clearedTimer = setTimeout(() => (box.hidden = true), 9000);
@@ -2573,6 +2657,7 @@ const MENU = [
   ['Review and delete', [
     { id: 'review', label: 'Review deletions', key: 'R', press: { key: 'r' }, when: () => authorized(), on: () => !$('#review').hidden },
     { id: 'delete', label: 'Delete from Photos…', key: '↵ in Review', press: { key: 'Enter' }, when: () => !$('#review').hidden && !!RV.data && reviewIds().length > 0 },
+    { id: 'undo', label: 'Undo the last delete', key: 'B  or ⌘Z', press: { key: 'b' }, when: () => authorized() && !!S.server.undo && !UNDO.busy && !RV.busy },
     { id: 'openphotos', label: 'Open Photos', key: '', press: { key: 'OpenPhotos' } },
   ]],
   ['Help', [
@@ -2650,6 +2735,14 @@ const PHOTO_KEYS = { j: 1, J: 1, k: -1, K: -1 };
 
 function onKey(e) {
   if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;
+  // ⌘Z (Ctrl+Z off the Mac) undoes the last delete, as B does
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'z' || e.key === 'Z') && !(e.target && e.target.tagName === 'INPUT')) {
+    if (S.server && S.server.undo) {
+      doUndo();
+      return e.preventDefault();
+    }
+    return;
+  }
   if (e.metaKey || e.ctrlKey || e.altKey) return; // the system's
   const k = /^Digit([0-9])$/.test(e.code || '') ? e.code.slice(5) : e.key;
   const lower = k.length === 1 ? k.toLowerCase() : k;
@@ -2693,6 +2786,11 @@ function onKey(e) {
 
   if (!$('#auth').hidden) {
     if (k === 'Enter') (S.server.auth === 'notDetermined' ? $('#auth-allow') : $('#auth-open')).click();
+    return e.preventDefault();
+  }
+
+  if (lower === 'b') {
+    doUndo();
     return e.preventDefault();
   }
 

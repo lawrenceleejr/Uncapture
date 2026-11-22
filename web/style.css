@@ -252,6 +252,9 @@ body.fs #peek { display: none; }
 #cleared .cleared { font-size: 15px; margin-bottom: 4px; }
 #cleared .cleared .amount { font-size: 28px; letter-spacing: .01em; margin-right: 4px; }
 #cleared .total { color: var(--muted); margin-top: 4px; }
+#cleared .undo { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--hair); color: var(--muted); }
+#cleared .undo .link { color: var(--ink); }
+#saved-undo { margin-left: 16px; }
 #review-scroll { flex: 1; overflow-y: auto; padding-bottom: 40px; }
 .rgroup { padding: 10px 0 16px; border-bottom: 1px solid var(--hair); }
 .rgroup-head { display: flex; gap: 12px; color: var(--ink); margin-bottom: 8px; }

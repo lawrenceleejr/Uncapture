@@ -15,7 +15,7 @@ use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject
 use objc2::{define_class, msg_send, sel, AllocAnyThread, DefinedClass};
 use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSImageCompressionFactor};
 use objc2_core_foundation::CGSize;
-use objc2_foundation::{NSArray, NSDictionary, NSError, NSNumber, NSObjectNSKeyValueCoding, NSString, NSURL};
+use objc2_foundation::{NSArray, NSDate, NSDictionary, NSError, NSNumber, NSObjectNSKeyValueCoding, NSString, NSURL};
 // CLGeocoder is deprecated in the newest SDK (for MapKit) but is what works
 // back to macOS 11, the app's minimum
 #[allow(deprecated)]
@@ -74,6 +74,69 @@ impl PhotoKitSource {
             found.insert(unsafe { a.localIdentifier() }.to_string(), a);
         }
         wanted.into_iter().map(|(id, l)| (id, l.and_then(|l| found.remove(&l)))).collect()
+    }
+
+    /// One new item in the library from kept files, with the photo's date,
+    /// place, heart and albums.
+    fn create(&self, dir: &std::path::Path, kept: &Kept, files: &[(isize, &KeptFile)]) -> Result<String, String> {
+        let files: Vec<(PHAssetResourceType, Retained<NSURL>, Retained<NSString>)> = files
+            .iter()
+            .map(|(k, f)| (PHAssetResourceType(*k), NSURL::fileURLWithPath(&NSString::from_str(&dir.join(&f.file).to_string_lossy())), NSString::from_str(&f.name)))
+            .collect();
+        let date = (kept.created > 0).then(|| NSDate::dateWithTimeIntervalSince1970(kept.created as f64 / 1000.0));
+        let location = kept.location.map(|(lat, lon)| unsafe { CLLocation::initWithLatitude_longitude(CLLocation::alloc(), lat, lon) });
+        let (favorite, hidden) = (kept.favorite, kept.hidden);
+        // the user's own albums it was in, where adding is allowed
+        let albums: Vec<Retained<PHAssetCollection>> = if kept.albums.is_empty() {
+            Vec::new()
+        } else {
+            let ids: Vec<Retained<NSString>> = kept.albums.iter().map(|s| NSString::from_str(s)).collect();
+            let r = unsafe { PHAssetCollection::fetchAssetCollectionsWithLocalIdentifiers_options(&NSArray::from_retained_slice(&ids), None) };
+            (0..unsafe { r.count() }).map(|i| unsafe { r.objectAtIndex(i) }).filter(|c| unsafe { c.canPerformEditOperation(PHCollectionEditOperation::AddContent) }).collect()
+        };
+        // the new item's localIdentifier, from its placeholder
+        let made: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+        let made2 = made.clone();
+        let change = RcBlock::new(move || unsafe {
+            let req = PHAssetCreationRequest::creationRequestForAsset();
+            for (kind, url, name) in &files {
+                let o = PHAssetResourceCreationOptions::new();
+                o.setOriginalFilename(Some(name));
+                o.setShouldMoveFile(false);
+                req.addResourceWithType_fileURL_options(*kind, url, Some(&o));
+            }
+            if let Some(d) = &date {
+                req.setCreationDate(Some(d));
+            }
+            if let Some(l) = &location {
+                req.setLocation(Some(l));
+            }
+            req.setFavorite(favorite);
+            req.setHidden(hidden);
+            if let Some(ph) = req.placeholderForCreatedAsset() {
+                *made2.lock().unwrap() = ph.localIdentifier().to_string();
+                let one = NSArray::from_retained_slice(&[ph]);
+                for c in &albums {
+                    if let Some(cr) = PHAssetCollectionChangeRequest::changeRequestForAssetCollection(c) {
+                        cr.addAssets(ProtocolObject::from_ref(&*one));
+                    }
+                }
+            }
+        });
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(Some(tx));
+        let done = RcBlock::new(move |ok: Bool, e: *mut NSError| {
+            let msg = unsafe { e.as_ref() }.map(|e| e.localizedDescription().to_string());
+            if let Some(t) = tx.lock().unwrap().take() {
+                let _ = t.send((ok.as_bool(), msg));
+            }
+        });
+        unsafe { PHPhotoLibrary::sharedPhotoLibrary().performChanges_completionHandler(RcBlock::as_ptr(&change), Some(&done)) };
+        match rx.recv_timeout(Duration::from_secs(10 * 60)) {
+            Ok((true, _)) => Ok(made.lock().unwrap().clone()),
+            Ok((false, m)) => Err(m.unwrap_or_else(|| "Photos said no".into())),
+            Err(_) => Err("Photos did not answer".into()),
+        }
     }
 
     fn one(&self, id: &AssetId) -> Option<Retained<PHAsset>> {
@@ -249,6 +312,24 @@ fn write_resource(res: &PHAssetResource, dest: &std::path::Path, progress: Progr
     }
 }
 
+/// A plain file name, whatever Photos says (no folders, no "..", no dot-files).
+fn clean_name(name: &str) -> String {
+    let n: String = name.chars().filter(|c| !c.is_control() && !"/\\:".contains(*c)).collect();
+    n.trim_start_matches('.').to_string()
+}
+
+// The resource types an app can give Photos to make an item (all of them but
+// the proxies): an original, its edits and their base, a Live Photo's video.
+const ADDABLE: [isize; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+// what makes an item on its own: Photo, Video, Audio, and a Live Photo's video
+const ORIGINALS: [isize; 4] = [1, 2, 3, 9];
+
+/// The kinds Photos would accept together as one new item.
+fn supported(kinds: &[isize]) -> bool {
+    let nums: Vec<Retained<NSNumber>> = kinds.iter().map(|&k| NSNumber::new_isize(k)).collect();
+    !kinds.is_empty() && unsafe { PHAssetCreationRequest::supportsAssetResourceTypes(&NSArray::from_retained_slice(&nums)) }
+}
+
 /// Sum of a photo's files (original, edits, Live Photo video) from the
 /// undocumented `fileSize` key; None if that key isn't there.
 fn file_size(a: &PHAsset) -> Option<u64> {
@@ -392,11 +473,77 @@ impl PhotoSource for PhotoKitSource {
             &[PHAssetResourceType::FullSizePhoto, PHAssetResourceType::Photo]
         };
         let res = resource_of(&a, kinds)?;
-        // a plain file name, whatever Photos says (no folders, no "..", no dot-files)
-        let name: String = unsafe { res.originalFilename() }.to_string().chars().filter(|c| !c.is_control() && !"/\\:".contains(*c)).collect();
-        let name = name.trim_start_matches('.').to_string();
+        let name = clean_name(&unsafe { res.originalFilename() }.to_string());
         let file = dir.join(if name.is_empty() { format!("{}.jpg", id) } else { name });
         write_resource(&res, &file, progress).then_some(file)
+    }
+
+    // every file Photos would need to make the item again, and its details
+    fn keep_copy(&self, id: &AssetId, dir: &std::path::Path) -> Option<Kept> {
+        let a = self.one(id)?;
+        std::fs::create_dir_all(dir).ok()?;
+        let mut files = Vec::new();
+        for (k, r) in unsafe { PHAssetResource::assetResourcesForAsset(&a) }.iter().enumerate() {
+            let kind = unsafe { r.r#type() }.0;
+            if !ADDABLE.contains(&kind) || files.iter().any(|f: &KeptFile| f.kind == kind as i64) {
+                continue;
+            }
+            let file = k.to_string();
+            // all of it or no copy: half an item couldn't be put back as it was
+            if !write_resource(&r, &dir.join(&file), Arc::new(|_| {})) {
+                return None;
+            }
+            files.push(KeptFile { kind: kind as i64, file, name: clean_name(&unsafe { r.originalFilename() }.to_string()) });
+        }
+        if !files.iter().any(|f| ORIGINALS.contains(&(f.kind as isize)) || f.kind == 5 || f.kind == 6) {
+            return None;
+        }
+        let albums = unsafe { PHAssetCollection::fetchAssetCollectionsContainingAsset_withType_options(&a, PHAssetCollectionType::Album, None) };
+        let albums = (0..unsafe { albums.count() })
+            .map(|i| unsafe { albums.objectAtIndex(i) })
+            .filter(|c| unsafe { c.assetCollectionSubtype() } == PHAssetCollectionSubtype::AlbumRegular)
+            .map(|c| unsafe { c.localIdentifier() }.to_string())
+            .collect();
+        Some(Kept {
+            files,
+            created: unsafe { a.creationDate() }.map(|d| (d.timeIntervalSince1970() * 1000.0) as i64).unwrap_or(0),
+            location: unsafe { a.location() }.map(|l| {
+                let c = unsafe { l.coordinate() };
+                (c.latitude, c.longitude)
+            }),
+            favorite: unsafe { a.isFavorite() },
+            hidden: unsafe { a.isHidden() },
+            albums,
+            extra: serde_json::Value::Null,
+        })
+    }
+
+    // A new item from the kept files: with its edits if Photos takes them that
+    // way, else the original alone, else the edited version as the original.
+    fn restore(&self, dir: &std::path::Path, kept: &Kept) -> Result<String, String> {
+        let all: Vec<(isize, &KeptFile)> = kept.files.iter().map(|f| (f.kind as isize, f)).collect();
+        let originals: Vec<(isize, &KeptFile)> = all.iter().filter(|(k, _)| ORIGINALS.contains(k)).cloned().collect();
+        let rendered: Vec<(isize, &KeptFile)> = all
+            .iter()
+            .filter_map(|&(k, f)| match k {
+                5 => Some((1, f)),
+                6 => Some((2, f)),
+                10 => Some((9, f)),
+                _ => None,
+            })
+            .collect();
+        let mut last = "Photos can't make an item from these files".to_string();
+        for files in [all, originals, rendered] {
+            let kinds: Vec<isize> = files.iter().map(|(k, _)| *k).collect();
+            if !supported(&kinds) {
+                continue;
+            }
+            match self.create(dir, kept, &files) {
+                Ok(local) => return Ok(local),
+                Err(e) => last = e,
+            }
+        }
+        Err(last)
     }
 
     fn delete(&self, ids: &[AssetId]) -> DeleteOutcome {

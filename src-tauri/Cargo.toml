@@ -31,7 +31,7 @@ tauri = { version = "2", optional = true, features = [] }
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSData", "NSDate", "NSDictionary", "NSEnumerator", "NSError", "NSObject", "NSString", "NSURL", "NSValue", "NSKeyValueCoding", "NSGeometry", "NSTimeZone"] }
-objc2-photos = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "PHAsset", "PHObject", "PHFetchOptions", "PHFetchResult", "PHImageManager", "PHPhotoLibrary", "PHAssetChangeRequest", "PHChangeRequest", "PHAssetResource", "PHAssetResourceManager", "PhotosTypes", "PHChange", "PHError", "dispatch2", "objc2-core-location"] }
+objc2-photos = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "PHAsset", "PHObject", "PHFetchOptions", "PHFetchResult", "PHImageManager", "PHPhotoLibrary", "PHAssetChangeRequest", "PHAssetCreationRequest", "PHAssetCollectionChangeRequest", "PHCollection", "PHChangeRequest", "PHAssetResource", "PHAssetResourceManager", "PhotosTypes", "PHChange", "PHError", "dispatch2", "objc2-core-location"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphicsContext", "NSSharingService", "NSView", "NSResponder", "objc2-core-graphics", "objc2-core-foundation"] }
 # dragging a photo out of the window as a file (the app window only)
 drag = { version = "2", optional = true }
