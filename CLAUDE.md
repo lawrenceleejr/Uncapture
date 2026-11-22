@@ -100,6 +100,12 @@ photos) and in the large view.
   rendered version as the original), marks what came back to keep, and
   takes it off `deletions` and `dailyLog`. Nothing unchecked goes to
   `addResourceWithType` or `addAssets`: an Objective-C exception aborts.
+- `H` hides at once (`/api/hide`: `set_hidden` by localIdentifier, then the
+  asset is flagged hidden in the server's list so clusters leave it out
+  before the library is read again). The page takes it out of the cluster
+  in the key press (`hidePhoto`). `B` shows it again (`/api/unhide`, the
+  last hide only) when `UNDO.last` is 'hide'; otherwise B undoes the last
+  delete.
 - `S` writes the favorite to Photos at once (`/api/favorite`); it isn't a
   mark. Daily cleanup's log (`dailyLog` in state.json, by "MM-DD") is
   written by `/api/delete` when the page sends the day it's cleaning up.

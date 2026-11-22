@@ -11,6 +11,8 @@ TESTING.md.
   coming back from the large view no longer leaves cropped photos.
 - Fixed: now and then a thumbnail batch or a picture never arrived (a bug in
   the HTTP library's thread pool, patched in a vendored copy).
+- `H` hides a photo in Photos straight away and takes it off the screen;
+  `B` shows it again.
 - The loupe from Brackit (`` ` ``) magnifies the original under the mouse.
 - Clusters only (`C`), daily cleanup on this day in earlier years (`T`), and
   a date range dragged on the chart of photos per month.

@@ -37,6 +37,9 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
       only in iCloud: the hairline at the top and "Downloading the original
       from iCloud · N%" move, then the full picture shows.
 - [ ] **Video.** A cluster with a video: `Space` plays it.
+- [ ] **Hide.** `H` on a photo: it leaves the grid at once and is in
+      Photos' Hidden album. `B`: it's back, in its cluster, with the focus on
+      it; no longer hidden in Photos.
 - [ ] **Which way up.** Portrait iPhone photos and portrait videos are
       upright in the grid, the timeline preview, Review and the large view.
       Open one large and come back: the grid shows it whole, not cropped.

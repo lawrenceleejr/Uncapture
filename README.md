@@ -47,11 +47,12 @@ In the viewer:
 | `A`, `0` | keep all, clear the cluster |
 | `D` (or `X`) | mark the photo for deletion (also how to delete a favorite) |
 | `S` | heart it in Photos (or take the heart off) |
+| `H` | hide it in Photos (its Hidden album), straight away |
 | `E` | share it: the Mac's share sheet (Messages, Mail, AirDrop…) |
 | `Space` | the photo large; `Z` actual pixels |
 | `` ` `` | the loupe: a magnifier that follows the mouse; scroll for 50–400 % |
 | `R` | review everything marked |
-| `B` | undo the last delete |
+| `B` | undo the last delete, or the last hide |
 | `M`, `?` | every action, every key |
 
 When I come across a memory worth sending, `E` shares it, or I drag the photo
