@@ -6,12 +6,10 @@ The first version, not yet tried against a real Photos library: see
 TESTING.md.
 
 - Clusters of photos taken close together, with a window from 5 s to 30 min
-  (`-` `=`); a burst always stays in one cluster.
+  (`[` `]`); a burst always stays in one cluster.
 - Photos and videos stored sideways (iPhone portrait shots) show upright;
   coming back from the large view no longer leaves cropped photos.
-- `[` `]` turn a photo a quarter left or right (kept by Uncapture; Photos
-  isn't changed). The loupe from Brackit (`` ` ``) magnifies the original
-  under the mouse.
+- The loupe from Brackit (`` ` ``) magnifies the original under the mouse.
 - Clusters only (`C`), daily cleanup on this day in earlier years (`T`), and
   a date range dragged on the chart of photos per month.
 - Daily cleanup's calendar: any day of the year, shaded by how recently it

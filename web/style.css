@@ -262,16 +262,6 @@ body.fs #peek { display: none; }
 .rtile { position: relative; width: 150px; height: 112px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .rtile .pic { position: relative; background: #050505; }
 .rtile .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
-/* turned with [ ]: the box has the turned shape, the upright picture is
-   rotated into it (a transform: no filter on pictures) */
-.frame.t1 > img, .frame.t1 > canvas, .frame.t3 > img, .frame.t3 > canvas,
-.pic.t1 > img, .pic.t3 > img { inset: auto; left: 50%; top: 50%; width: var(--fh); height: var(--fw); transform: translate(-50%, -50%) rotate(90deg); }
-.frame.t3 > img, .frame.t3 > canvas, .pic.t3 > img { transform: translate(-50%, -50%) rotate(-90deg); }
-.frame.t2 > img, .frame.t2 > canvas, .pic.t2 > img { transform: rotate(180deg); }
-#peek .peek-img.t1 img, #peek .peek-img.t3 img { max-width: 106px; max-height: 160px; transform: rotate(90deg); }
-#peek .peek-img.t3 img { transform: rotate(-90deg); }
-#peek .peek-img.t2 img { transform: rotate(180deg); }
-
 /* the loupe (Brackit's): a magnifier following the mouse */
 #loupe {
   position: fixed; z-index: 70; width: 240px; height: 240px; border-radius: 50%; overflow: hidden; pointer-events: none;

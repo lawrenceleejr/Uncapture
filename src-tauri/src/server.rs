@@ -55,9 +55,6 @@ struct State {
     /// every delete: when, how many, about how many bytes (the space cleared)
     deletions: Vec<Deletion>,
     first_delete_seen: bool,
-    /// photos turned with [ ] (quarter turns clockwise, 1–3), by
-    /// localIdentifier: how Uncapture shows them; Photos isn't changed
-    turns: std::collections::BTreeMap<String, u8>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -725,7 +722,6 @@ fn state_json(app: &App) -> Value {
         "today": fmt_day(today()),
         "firstDeleteSeen": s.first_delete_seen,
         "undo": undo_json(&undo_batch()),
-        "turns": s.turns.iter().map(|(l, t)| (short_id(l), *t)).collect::<std::collections::BTreeMap<_, _>>(),
         "windows": cluster::WINDOWS,
         "library": { "version": lib.version, "count": lib.assets.len(), "loading": lib.loading, "loaded": lib.loaded, "fetchMs": lib.fetch_ms },
         "marks": {
@@ -965,26 +961,6 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
             app.save_state();
             let window = body["window"].as_u64().map(|w| cluster::snap_window(w as u32)).unwrap_or(app.state.lock().unwrap().settings.window);
             send_json(req, 200, json!({ "toDelete": app.delete_count(window) }))
-        }
-        ("/api/turns", _, _, true) => {
-            // a photo turned with [ ]: kept for showing it, by localIdentifier
-            let body = read_json(&mut req);
-            let local = body["id"].as_str().and_then(|id| {
-                let lib = app.lib.read().unwrap();
-                lib.by_id.get(id).map(|&i| lib.assets[i].local_id.clone())
-            });
-            let Some(local) = local else { return err(req, 404, "not found") };
-            let t = (body["turns"].as_i64().unwrap_or(0).rem_euclid(4)) as u8;
-            {
-                let mut s = app.state.lock().unwrap();
-                if t == 0 {
-                    s.turns.remove(&local);
-                } else {
-                    s.turns.insert(local, t);
-                }
-            }
-            app.save_state();
-            send_json(req, 200, json!({ "turns": t }))
         }
         ("/api/settings", _, _, true) => {
             let body = read_json(&mut req);

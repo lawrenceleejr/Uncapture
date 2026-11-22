@@ -127,8 +127,6 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
                 &[
                     &item("large", "Large View   Space")?,
                     &item("share", "Share Photo…   E")?,
-                    &item("turnleft", "Turn Left   [")?,
-                    &item("turnright", "Turn Right   ]")?,
                     &item("zoom", "Actual Pixels   Z")?,
                     &item("loupe", "Loupe   `")?,
                     &P::separator(h)?,
@@ -140,8 +138,8 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
                 "Clusters and Filters",
                 true,
                 &[
-                    &item("longer", "Longer Window   =")?,
-                    &item("shorter", "Shorter Window   −")?,
+                    &item("longer", "Longer Window   ]")?,
+                    &item("shorter", "Shorter Window   [")?,
                     &P::separator(h)?,
                     &item("clustersonly", "Clusters Only   C")?,
                     &item("videosonly", "Videos Only   V")?,

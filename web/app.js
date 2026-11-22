@@ -90,7 +90,6 @@ async function boot() {
   S.server = await api('GET', '/api/state');
   document.body.classList.add(S.server.platform);
   Object.assign(S.settings, S.server.settings);
-  S.turns = new Map(Object.entries(S.server.turns || {}));
   S.keep = new Set(S.server.marks.keep);
   S.del = new Set(S.server.marks.del);
   bindUi();
@@ -1280,40 +1279,10 @@ const thumbReady = (id) => {
   return e && e.done ? e.img : null;
 };
 
-/* A frame has the shape Photos gives the photo (turned with [ ] if it was),
-   whatever picture is in it: the server makes every picture that shape, and
+/* A frame has the shape Photos gives the photo, whatever picture is in it: the server makes every picture that shape, and
    one that isn't is fitted in whole (contain), never cropped. (Frames used to
    take the thumbnail's shape; a sharper picture of the other shape then came
    out cropped.) */
-
-/* Turned with [ ]: quarter turns clockwise, by photo, saved by the server
-   (Photos isn't changed). A turned photo's box has the turned shape; the
-   picture in it is the upright one, rotated into place with a transform
-   (cheap: not a filter). */
-const turnsOf = (id) => (S.turns && S.turns.get(id)) || 0;
-function turnBox(box, id, w, h) {
-  const t = turnsOf(id);
-  box.classList.remove('t1', 't2', 't3');
-  if (!t) return;
-  box.classList.add(`t${t}`);
-  box.style.setProperty('--fw', `${w}px`);
-  box.style.setProperty('--fh', `${h}px`);
-}
-// the size of the upright picture in a box w × h turned t times
-const unturned = (t, w, h) => (t % 2 ? [h, w] : [w, h]);
-
-function turnPhoto(dir) {
-  const id = focusedId();
-  if (!id) return;
-  const t = (turnsOf(id) + dir + 4) % 4;
-  if (t) S.turns.set(id, t);
-  else S.turns.delete(id);
-  if (S.solo) {
-    S.stageStale = true;
-    renderSolo();
-  } else scheduleRender();
-  api('PUT', '/api/turns', { id, turns: t }).catch(() => toast("The turn couldn't be saved."));
-}
 
 /* Pictures go on screen decoded and drawn at once. Images load with
    decoding="async"; in WebKit (Safari, the Mac app) an element marked so is
@@ -1349,10 +1318,7 @@ function stageSize() {
   }
   return layoutCache;
 }
-const aspectOf = (a) => {
-  const r = a && a.w && a.h ? a.w / a.h : 1.5;
-  return a && turnsOf(a.id) % 2 ? 1 / r : r;
-};
+const aspectOf = (a) => (a && a.w && a.h ? a.w / a.h : 1.5);
 
 /* The grid for a cluster: 1–9 photos fill the window (the column count that
    shows them biggest: a row, 2 + 1, a near-square grid); more than 9 scroll
@@ -1419,8 +1385,7 @@ function plan(c) {
   return c.map((id) => {
     const a = S.byId.get(id);
     const { w, h } = frameSize(a, L);
-    const [cw, ch] = unturned(turnsOf(id), w, h);
-    return { id, a, w, h, cw, ch, url: imgUrl(id, bucket(Math.max(w, h) * dpr())) };
+    return { id, a, w, h, url: imgUrl(id, bucket(Math.max(w, h) * dpr())) };
   });
 }
 
@@ -1428,7 +1393,7 @@ function queueDisplayCopies() {
   dispQueue = [];
   for (let d = 0; d <= AHEAD; d++) {
     const c = S.clusters[S.idx + d];
-    if (c && c.length <= 12) for (const p of plan(c)) if (p.a.kind !== 'video') dispQueue.push({ ...p, w: p.cw, h: p.ch });
+    if (c && c.length <= 12) for (const p of plan(c)) if (p.a.kind !== 'video') dispQueue.push(p);
   }
   scheduleDisplayCopy();
 }
@@ -1614,7 +1579,8 @@ function sharpened(ids) {
       getImage(soloUrl(id), 0.05).promise.then((img) => {
         if (!S.solo || focusedId() !== id || frame.dataset.id !== id || frame.dataset.level === 'full' || !img.naturalWidth) return;
         const old = frame.firstElementChild;
-        for (const k of ['width', 'height', 'maxWidth', 'maxHeight', 'transform']) img.style[k] = old ? old.style[k] : '';
+        img.style.width = old ? old.style.width : '';
+        img.style.height = old ? old.style.height : '';
         img.style.objectFit = 'contain';
         img.classList.remove('lowres');
         frame.dataset.level = 'preview';
@@ -1683,7 +1649,7 @@ function render() {
           ? 'No screenshots here.\nPress P for photos too, or O for dates and filters.'
           : S.settings.daily
           ? 'Nothing from this day in earlier years.\nPress T for all dates, or O for dates and filters.'
-          : 'No clusters here.\nPress C to show single photos too, = for a longer window, or O for dates and filters.'
+          : 'No clusters here.\nPress C to show single photos too, ] for a longer window, or O for dates and filters.'
       )
     );
     stage.firstChild.style.whiteSpace = 'pre-line';
@@ -1728,7 +1694,6 @@ function render() {
     frame.style.width = `${w}px`;
     frame.style.height = `${h}px`;
     frame.dataset.id = id;
-    turnBox(frame, id, w, h);
     frame.onclick = () => {
       if (DR.justDragged) return; // the end of a drag out, not a click
       S.focus = pos;
@@ -1763,7 +1728,7 @@ function render() {
       if (token !== renderToken || shownW || !timg || !timg.naturalWidth) return;
       put(timg.cloneNode(), true);
     };
-    const copy = a.kind !== 'video' && freshCopy(id, url, p.cw, p.ch);
+    const copy = a.kind !== 'video' && freshCopy(id, url, w, h);
     if (copy) return put(copy);
     const best = a.kind !== 'video' && sharpestLoaded(id, url);
     if (best) showSharp(best);
@@ -1899,7 +1864,6 @@ function drawTicks() {
     cv.height = Math.round(H * dpr());
   }
   const ctx = cv.getContext('2d');
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
   const n = S.clusters.length;
   if (!n) return;
@@ -1998,8 +1962,6 @@ function peekAt(e) {
   peek.classList.toggle('kept', keeperPos(c) != null);
   const box = peek.querySelector('.peek-img');
   box.replaceChildren();
-  box.classList.remove('t1', 't2', 't3');
-  if (turnsOf(shown)) box.classList.add(`t${turnsOf(shown)}`);
   const put = (img) => peekIdx === i && img && img.naturalWidth && box.replaceChildren(onScreen(img.cloneNode()));
   const ready = thumbReady(shown);
   if (ready) put(ready);
@@ -2066,7 +2028,7 @@ function renderSoloCaption() {
   if (a.fav) cap.append(el('span', 'fav', '♥'));
   if (a.kind === 'video') cap.append(el('span', 'kind', `▶ ${fmtDur(a.dur)}`));
   const hint = el('span', 'hint');
-  hint.innerHTML = `${S.keep.has(id) ? 'kept' : d.has(id) ? 'to delete' : ''} &nbsp;<kbd>j</kbd><kbd>k</kbd> photos <kbd>↵</kbd> keep <kbd>D</kbd> delete <kbd>S</kbd> ♥ <kbd>E</kbd> share <kbd>[</kbd><kbd>]</kbd> turn <kbd>Z</kbd> actual pixels <kbd>\`</kbd> loupe <kbd>Space</kbd> back`;
+  hint.innerHTML = `${S.keep.has(id) ? 'kept' : d.has(id) ? 'to delete' : ''} &nbsp;<kbd>j</kbd><kbd>k</kbd> photos <kbd>↵</kbd> keep <kbd>D</kbd> delete <kbd>S</kbd> ♥ <kbd>E</kbd> share <kbd>Z</kbd> actual pixels <kbd>\`</kbd> loupe <kbd>Space</kbd> back`;
   cap.append(hint);
 }
 
@@ -2098,19 +2060,15 @@ function renderSolo() {
     frame.dataset.id = id;
     frame.dataset.level = level;
     node.classList.toggle('lowres', level === 'thumb');
-    const t = turnsOf(id);
     if (level === 'thumb' || level === 'preview') {
       const { w, h } = fit();
-      const [cw, ch] = unturned(t, w, h);
-      node.style.width = `${cw}px`;
-      node.style.height = `${ch}px`;
+      node.style.width = `${w}px`;
+      node.style.height = `${h}px`;
       node.style.objectFit = 'contain';
     } else {
       node.style.width = node.style.height = node.style.objectFit = '';
     }
-    // turned: the upright picture rotated into the box (centred either way)
-    node.style.maxWidth = node.style.maxHeight = t % 2 ? 'none' : '';
-    node.style.transform = t ? `rotate(${t * 90}deg)` : '';
+    node.style.transform = '';
     frame.replaceChildren(onScreen(node));
     if (S.solo && S.solo.zoom && level === 'full') zoomTo(S.solo.zx ?? 0.5, S.solo.zy ?? 0.5);
     placeSoloStrike();
@@ -2199,14 +2157,6 @@ function showVideo(id, token) {
   };
   v.onloadeddata = () => stopProgress();
   v.onloadedmetadata = () => placeSoloStrike();
-  const t = turnsOf(id);
-  if (t) {
-    if (t % 2) {
-      v.style.maxWidth = `${frame.clientHeight}px`;
-      v.style.maxHeight = `${frame.clientWidth}px`;
-    }
-    v.style.transform = `rotate(${t * 90}deg)`;
-  }
   frame.dataset.id = id;
   frame.dataset.level = 'video';
   frame.replaceChildren(v);
@@ -2241,12 +2191,9 @@ function zoomTo(fx, fy) {
   node.style.height = h + 'px';
   const fw = frame.clientWidth;
   const fh = frame.clientHeight;
-  // turned: what shows is dw × dh; turning about its centre moves its corner
-  const t = turnsOf(frame.dataset.id);
-  const [dw, dh] = unturned(t, w, h);
-  const tx = dw > fw ? -(dw - fw) * fx : (fw - dw) / 2;
-  const ty = dh > fh ? -(dh - fh) * fy : (fh - dh) / 2;
-  node.style.transform = `translate(${tx - (w - dw) / 2}px, ${ty - (h - dh) / 2}px)${t ? ` rotate(${t * 90}deg)` : ''}`;
+  const tx = w > fw ? -(w - fw) * fx : (fw - w) / 2;
+  const ty = h > fh ? -(h - fh) * fy : (fh - h) / 2;
+  node.style.transform = `translate(${tx}px, ${ty}px)`;
   S.solo.zx = fx;
   S.solo.zy = fy;
   placeSoloStrike();
@@ -2267,8 +2214,7 @@ function toggleZoom(e) {
    Brackit's loupe: ` shows a magnifier that follows the mouse over any photo,
    in the grid or the large view; the wheel steps it through 50–400 % of the
    original's pixels. It draws from the original (from iCloud if need be;
-   the picture on screen, scaled up, until that's here), turned as the photo
-   is turned. */
+   the picture on screen, scaled up, until that's here). */
 const LP = { on: false, zoom: 1, last: null, raf: 0, cache: new Map() };
 const LOUPE_D = 240; // css px
 
@@ -2317,9 +2263,6 @@ function drawLoupe(ev) {
   lp.hidden = false;
   lp.style.left = `${ev.x - LOUPE_D / 2}px`;
   lp.style.top = `${ev.y - LOUPE_D / 2}px`;
-  // where that is in the upright picture (the box on screen may be turned)
-  const turns = turnsOf(t.id);
-  const [u, v] = [[fx, fy], [fy, 1 - fx], [1 - fx, 1 - fy], [1 - fy, fx]][turns];
   const full = loupeImage(t.id);
   const src = full.done ? full.img : t.node;
   const W = src.naturalWidth || src.width;
@@ -2337,10 +2280,8 @@ function drawLoupe(ev) {
   const scale = full.done ? LP.zoom : LP.zoom * ((t.a.w || W) / W);
   const sw = c.width / scale;
   const sh = c.height / scale;
-  ctx.translate(c.width / 2, c.height / 2);
-  ctx.rotate((turns * Math.PI) / 2);
   ctx.imageSmoothingEnabled = LP.zoom < 2;
-  ctx.drawImage(src, u * W - sw / 2, v * H - sh / 2, sw, sh, -c.width / 2, -c.height / 2, c.width, c.height);
+  ctx.drawImage(src, fx * W - sw / 2, fy * H - sh / 2, sw, sh, 0, 0, c.width, c.height);
   lp.querySelector('.loupe-zoom').textContent = `${Math.round(LP.zoom * 100)} %${full.done ? '' : ' …'}`;
 }
 
@@ -2464,7 +2405,6 @@ function renderReview() {
       const pic = el('div', 'pic');
       pic.style.width = `${Math.round(w)}px`;
       pic.style.height = `${Math.round(w / r)}px`;
-      turnBox(pic, id, Math.round(w), Math.round(w / r));
       pic.append(strike());
       if (d.has(id)) pic.classList.add('del');
       if (x.fav) pic.append(el('span', 'badge', '♥'));
@@ -2808,15 +2748,13 @@ const MENU = [
   ['Look closely', [
     { id: 'large', label: 'Large view', key: 'Space', press: { key: ' ' }, when: inViewer, on: () => !!S.solo },
     { id: 'share', label: 'Share photo…', key: 'E', press: { key: 'e' }, when: inViewer },
-    { id: 'turnleft', label: 'Turn left', key: '[', press: { key: '[' }, when: inViewer },
-    { id: 'turnright', label: 'Turn right', key: ']', press: { key: ']' }, when: inViewer },
     { id: 'zoom', label: 'Actual pixels', key: 'Z', press: { key: 'z' }, when: () => !!S.solo, on: () => !!(S.solo && S.solo.zoom) },
     { id: 'loupe', label: 'Loupe', key: '`', press: { key: '`', code: 'Backquote' }, when: inViewer, on: () => LP.on },
     { id: 'fullscreen', label: 'Full screen', key: 'F', press: { key: 'f' }, on: () => isFullscreen() },
   ]],
   ['Clusters and filters', [
-    { id: 'longer', label: 'Longer window', key: '=', press: { key: '=' }, when: () => authorized() && $('#review').hidden },
-    { id: 'shorter', label: 'Shorter window', key: '−', press: { key: '-' }, when: () => authorized() && $('#review').hidden },
+    { id: 'longer', label: 'Longer window', key: ']', press: { key: ']' }, when: () => authorized() && $('#review').hidden },
+    { id: 'shorter', label: 'Shorter window', key: '[', press: { key: '[' }, when: () => authorized() && $('#review').hidden },
     { id: 'clustersonly', label: 'Clusters only', key: 'C', press: { key: 'c' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.clustersOnly },
     { id: 'screenshotsonly', label: 'Screenshots only', key: 'P', press: { key: 'p' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.screenshotsOnly },
     { id: 'videosonly', label: 'Videos only', key: 'V', press: { key: 'v' }, when: () => authorized() && $('#review').hidden, on: () => S.settings.videosOnly },
@@ -2977,8 +2915,8 @@ function onKey(e) {
 
   // the window and the filters work on the start screen and in the viewer
   if (authorized()) {
-    if (k === '-' || k === '_' || k === '=' || k === '+') {
-      stepWindow(k === '=' || k === '+' ? 1 : -1);
+    if (k === '[' || k === ']') {
+      stepWindow(k === ']' ? 1 : -1);
       return e.preventDefault();
     }
     if (lower === 'c') {
@@ -3031,10 +2969,6 @@ function onKey(e) {
 
   if (FLIP_KEYS[k]) {
     go(FLIP_KEYS[k] * (e.shiftKey ? 10 : 1));
-    return e.preventDefault();
-  }
-  if (k === '[' || k === ']') {
-    turnPhoto(k === ']' ? 1 : -1);
     return e.preventDefault();
   }
   if (k === '`' || e.code === 'Backquote') {

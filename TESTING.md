@@ -42,10 +42,8 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
       Open one large and come back: the grid shows it whole, not cropped.
       If one is still sideways, `npm run app` and note it (which camera,
       edited or not).
-- [ ] **Turn and loupe.** `]` on a photo turns it a quarter; it stays turned
-      after quitting; Photos still shows it as before. `` ` ``, then move
-      over a photo: the loupe shows the original sharp at 100 %; scroll
-      for 200 %.
+- [ ] **Loupe.** `` ` ``, then move over a photo: the loupe shows the
+      original sharp at 100 %; scroll for 200 %.
 - [ ] **Delete three.** In the test album's dates, keep one photo of a
       cluster of four (`1`), `R`, `↵`. The first time, the short
       explanation shows; `↵` again. macOS asks to confirm deleting 3. Allow:

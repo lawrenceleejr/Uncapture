@@ -1,8 +1,8 @@
 'use strict';
 /* Which way up: a photo stored sideways (as an iPhone stores a portrait
    shot) shows upright, in the grid and the large view, and its frame keeps
-   its shape coming back from the large view (no cropped pictures). [ and ]
-   turn a photo, saved; ` is the loupe. */
+   its shape coming back from the large view (no cropped pictures). ` is
+   the loupe. */
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -10,7 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
-const { startServer, openStart, keyed } = require('./helpers');
+const { startServer, openStart } = require('./helpers');
 const { writeLibrary, renderScenes } = require('../fixture');
 
 const T0 = Date.UTC(2024, 4, 1, 9, 0, 0);
@@ -21,7 +21,7 @@ let ids;
 
 test.before(async () => {
   browser = await chromium.launch();
-  const lib = fs.mkdtempSync(path.join(os.tmpdir(), 'uncapture-turn-'));
+  const lib = fs.mkdtempSync(path.join(os.tmpdir(), 'uncapture-upright-'));
   const art = await renderScenes(browser, 3);
   // two clusters; the second photo is stored sideways (EXIF orientation 6):
   // its pixels are 2400 × 1600, it's shown 1600 × 2400
@@ -69,7 +69,7 @@ const shapes = (page, id) =>
     const p = f.querySelector('img, canvas');
     const pw = p ? p.naturalWidth || p.width : 0;
     const ph = p ? p.naturalHeight || p.height : 0;
-    return { fw: f.offsetWidth, fh: f.offsetHeight, pw, ph, fit: p ? getComputedStyle(p).objectFit : '', turned: [...f.classList].find((c) => /^t\d$/.test(c)) || '' };
+    return { fw: f.offsetWidth, fh: f.offsetHeight, pw, ph, fit: p ? getComputedStyle(p).objectFit : '' };
   });
 
 test('a photo stored sideways shows upright, and comes back from the large view uncropped', async () => {
@@ -104,43 +104,6 @@ test('a photo stored sideways shows upright, and comes back from the large view 
     const pr = s.pw / s.ph;
     assert.ok(Math.abs(fr - pr) < 0.03, `${id}: frame ${s.fw}×${s.fh}, picture ${s.pw}×${s.ph}`);
   }
-  assert.deepEqual(errors, []);
-  await page.close();
-});
-
-test('] and [ turn a photo, in the grid and the large view, and the turn is kept', async () => {
-  let { page, errors } = await openViewer();
-  const id = ids[0];
-  const before = await shapes(page, id);
-  assert.ok(before.fw > before.fh, 'landscape to start with');
-  await page.keyboard.press(']');
-  await page.waitForFunction((x) => document.querySelector(`#stage .frame[data-id="${x}"]`).classList.contains('t1'), id);
-  let s = await shapes(page, id);
-  assert.ok(s.fh > s.fw, `turned a quarter: portrait ${s.fw}×${s.fh}`);
-  const tf = await page.$eval(`#stage .frame[data-id="${id}"] > :is(img, canvas)`, (p) => getComputedStyle(p).transform);
-  assert.notEqual(tf, 'none');
-  // saved by the server, by photo
-  await page.waitForTimeout(200);
-  const st = await fetch(base + '/api/state', { headers: keyed(base) }).then((r) => r.json());
-  assert.deepEqual(st.turns, { [id]: 1 });
-  await page.close();
-
-  // a new page: still turned; the large view turns it too
-  ({ page, errors } = await openViewer());
-  s = await shapes(page, id);
-  assert.equal(s.turned, 't1');
-  await page.keyboard.press(' ');
-  await page.waitForFunction(() => document.querySelector('#solo-frame').firstElementChild?.style.transform === 'rotate(90deg)');
-  await page.keyboard.press(']');
-  await page.waitForFunction(() => document.querySelector('#solo-frame').firstElementChild?.style.transform === 'rotate(180deg)');
-  await page.keyboard.press('[');
-  await page.keyboard.press('[');
-  await page.waitForFunction(() => document.querySelector('#solo-frame').firstElementChild?.style.transform === '');
-  await page.keyboard.press(' ');
-  await page.waitForSelector('#solo', { state: 'hidden' });
-  await page.waitForFunction((x) => !document.querySelector(`#stage .frame[data-id="${x}"]`).classList.contains('t1'), id);
-  await page.waitForTimeout(200);
-  assert.deepEqual((await fetch(base + '/api/state', { headers: keyed(base) }).then((r) => r.json())).turns, {});
   assert.deepEqual(errors, []);
   await page.close();
 });
