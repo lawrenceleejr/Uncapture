@@ -121,7 +121,9 @@ uncapture --serve --fake ~/some/folder/of/jpegs
 ```
 
 With `--fake`, a folder of JPEGs stands in for the library: deleting moves
-files to a `.trash` folder inside it.
+files to a `.trash` folder inside it. Open the page with the link it prints:
+the link carries a key made at each launch, and without it the server
+answers nothing.
 
 ## Tests
 
@@ -139,3 +141,10 @@ It's built the way Brackit is: a small Rust server on 127.0.0.1 serves a
 plain HTML/CSS/JS page, shown in a Tauri window. The Photos library is read
 only through PhotoKit, never by opening the library files. Notes for working
 on it are in [CLAUDE.md](CLAUDE.md).
+
+Because the server can see your photos, it answers only Uncapture's own
+window: every request has to carry a key the app makes at each launch and
+gives only to that window (as a cookie its scripts can't read). Other programs
+on the Mac and web pages in a browser get nothing, not even the list of
+photos. The window can't be navigated anywhere else, and the page runs only
+its own scripts.

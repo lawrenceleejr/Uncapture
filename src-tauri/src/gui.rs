@@ -62,8 +62,10 @@ pub fn run(src: Arc<dyn PhotoSource>) {
                 }
             }));
             let port = server::start(srv.clone(), 0)?;
-            let url = format!("http://127.0.0.1:{}/?shell=tauri", port);
+            let url = format!("http://127.0.0.1:{}/?shell=tauri&key={}", port, srv.key);
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.parse().unwrap()))
+                // the window only ever shows Uncapture's own page
+                .on_navigation(move |u| u.host_str() == Some("127.0.0.1") && u.port() == Some(port))
                 .title("Uncapture")
                 .inner_size(1440.0, 920.0)
                 .min_inner_size(900.0, 600.0)

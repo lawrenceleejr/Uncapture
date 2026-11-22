@@ -8,7 +8,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { startServer } = require('./ui/helpers');
+const { startServer, keyed, pageUrl, KEYS } = require('./ui/helpers');
 const { writeLibrary } = require('./fixture');
 
 const H = 3600_000;
@@ -67,7 +67,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uncapture-test-'));
 async function api(method, url, body, headers = {}) {
   const r = await fetch(base + url, {
     method,
-    headers: { 'X-Uncapture': '1', ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
+    headers: keyed(base, { 'X-Uncapture': '1', ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers }),
     body: body ? JSON.stringify(body) : undefined,
   });
   const ct = r.headers.get('content-type') || '';
@@ -150,6 +150,9 @@ test('locations: from EXIF GPS, and place names asked once per spot', async () =
   assert.deepEqual((await api('GET', '/api/place?lat=35.9606&lon=-83.9207')).data, { place: 'Knoxville, Tennessee' });
   assert.deepEqual((await api('GET', '/api/place?lat=1&lon=2')).data, { place: null });
   assert.equal((await api('GET', '/api/place?lat=x')).status, 400);
+  assert.equal((await api('GET', '/api/place?lat=NaN&lon=2')).status, 400, 'only places on Earth');
+  assert.equal((await api('GET', '/api/place?lat=91&lon=2')).status, 400);
+  assert.equal((await api('GET', '/api/place?lat=1&lon=-181')).status, 400);
   const cache = JSON.parse(fs.readFileSync(path.join(tmp, 'home', '.uncapture', 'places.json')));
   assert.deepEqual(cache, { '35.96,-83.92': 'Knoxville, Tennessee' }, 'found names are kept on disk');
 });
@@ -166,17 +169,17 @@ test('library: screenshots only shows every screenshot, alone or not', async () 
 });
 
 test('a photo\'s own file: to save, and (in a browser) Share and drag answer so', async () => {
-  const f = await fetch(`${base}/api/original/${idOf('B1.JPG')}`);
+  const f = await fetch(`${base}/api/original/${idOf('B1.JPG')}`, { headers: keyed(base) });
   assert.equal(f.status, 200);
-  assert.equal(f.headers.get('content-disposition'), 'attachment; filename="B1.JPG"');
+  assert.equal(f.headers.get('content-disposition'), `attachment; filename="B1.JPG"; filename*=UTF-8''B1.JPG`);
   assert.deepEqual(Buffer.from(await f.arrayBuffer()), fs.readFileSync(path.join(lib, 'B1.JPG')));
   assert.ok(fs.existsSync(path.join(tmp, 'home', '.uncapture', 'share', idOf('B1.JPG'), 'B1.JPG')), 'written once, kept for a drag or share');
-  assert.equal((await fetch(`${base}/api/original/0000000000000000`)).status, 404);
+  assert.equal((await fetch(`${base}/api/original/0000000000000000`, { headers: keyed(base) })).status, 404);
   // no app window here: Share is a download, drag isn't offered
   assert.deepEqual((await api('POST', '/api/share', { id: idOf('B1.JPG'), x: 10, y: 10 })).data, { download: `/api/original/${idOf('B1.JPG')}` });
   assert.deepEqual((await api('POST', '/api/drag', { id: idOf('B1.JPG') })).data, { unavailable: true });
   assert.equal((await api('POST', '/api/share', { id: 'nope' })).status, 404);
-  assert.equal((await fetch(base + '/api/share', { method: 'POST', body: '{}' })).status, 403, 'its own page only');
+  assert.equal((await fetch(base + '/api/share', { method: 'POST', headers: keyed(base), body: '{}' })).status, 403, 'its own page only');
 });
 
 test('library: clusters at 60 s, singles hidden by "clusters only"', async () => {
@@ -280,14 +283,14 @@ test('sharp copies: downloaded in the background, kept on disk, served for the p
   assert.deepEqual(st.ready, [idOf('C2.JPG')]);
   assert.equal(st.running, false);
   // and the page's header rule holds
-  assert.equal((await fetch(base + '/api/sharp', { method: 'POST', body: '{}' })).status, 403);
+  assert.equal((await fetch(base + '/api/sharp', { method: 'POST', headers: keyed(base), body: '{}' })).status, 403);
 });
 
 test('the API takes changes only from its own page', async () => {
-  const put = (headers) => fetch(base + '/api/marks', { method: 'PUT', headers: { 'Content-Type': 'application/json', ...headers }, body: '{}' });
+  const put = (headers) => fetch(base + '/api/marks', { method: 'PUT', headers: keyed(base, { 'Content-Type': 'application/json', ...headers }), body: '{}' });
   assert.equal((await put({})).status, 403, 'no X-Uncapture header');
   assert.equal((await put({ 'X-Uncapture': '1', Origin: 'https://evil.example' })).status, 403, 'a foreign Origin');
-  assert.equal((await fetch(base + '/api/state', { headers: { Origin: 'https://evil.example' } })).status, 403, 'even reads');
+  assert.equal((await fetch(base + '/api/state', { headers: keyed(base, { Origin: 'https://evil.example' }) })).status, 403, 'even reads');
   assert.equal((await put({ 'X-Uncapture': '1', Origin: base })).status, 200, 'its own origin');
   const port = new URL(base).port;
   const rebind = await new Promise((resolve) => {
@@ -412,7 +415,7 @@ test('access: not asked yet, then asked and allowed; or denied', async () => {
   const s = startServer(dir, { home: path.join(tmp, 'home-ask') });
   const b = await s.base;
   try {
-    const call = (m, u) => fetch(b + u, { method: m, headers: { 'X-Uncapture': '1' } }).then((r) => r.json());
+    const call = (m, u) => fetch(b + u, { method: m, headers: keyed(b, { 'X-Uncapture': '1' }) }).then((r) => r.json());
     let st = await call('GET', '/api/state');
     assert.equal(st.auth, 'notDetermined');
     assert.equal((await call('GET', '/api/assets')).assets.length, 0, 'nothing before access');
@@ -430,16 +433,38 @@ test('access: not asked yet, then asked and allowed; or denied', async () => {
   const s2 = startServer(dir2, { home: path.join(tmp, 'home-deny') });
   const b2 = await s2.base;
   try {
-    const r = await fetch(b2 + '/api/authorize', { method: 'POST', headers: { 'X-Uncapture': '1' } }).then((x) => x.json());
+    const r = await fetch(b2 + '/api/authorize', { method: 'POST', headers: keyed(b2, { 'X-Uncapture': '1' }) }).then((x) => x.json());
     assert.equal(r.auth, 'denied');
   } finally {
     s2.proc.kill();
   }
 });
 
-test('the page is served; paths outside it are not', async () => {
+test('other programs and web pages can\'t use the API: it takes the launch\'s key', async () => {
+  const get = (headers) => fetch(base + '/api/assets', { headers }).then((r) => r.status);
+  assert.equal(await get({}), 401, 'no key: not even a read');
+  assert.equal(await get({ 'X-Uncapture-Key': '0'.repeat(32) }), 401, 'a wrong key');
+  assert.equal(await get({ Cookie: `uncapture_${new URL(base).port}=nope` }), 401, 'a wrong cookie');
+  assert.equal(await get(keyed(base)), 200, 'the key as a header');
+  assert.equal(await get(keyed(base, { 'Sec-Fetch-Site': 'cross-site' })), 403, 'from another site, even with the key');
+  assert.equal(await get(keyed(base, { 'Sec-Fetch-Site': 'same-site' })), 403, 'from another port');
+  // the page, opened with the key, gets it as a cookie its scripts can't read
+  const page = await fetch(pageUrl(base));
+  const set = page.headers.get('set-cookie');
+  assert.match(set, new RegExp(`^uncapture_${new URL(base).port}=${KEYS[base]}; Path=/; HttpOnly; SameSite=Strict$`));
+  assert.equal(await get({ Cookie: set.split(';')[0], 'Sec-Fetch-Site': 'same-origin' }), 200, 'the cookie');
+  assert.equal((await fetch(base + '/?key=nope')).headers.get('set-cookie'), null, 'no cookie for a wrong key');
+  assert.equal((await fetch(base + '/')).headers.get('set-cookie'), null);
+});
+
+test('the page is served with a strict policy; paths outside it are not', async () => {
   const r = await fetch(base + '/');
   assert.equal(r.status, 200);
+  const csp = r.headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(r.headers.get('referrer-policy'), 'no-referrer');
   assert.match(await r.text(), /<title>Uncapture<\/title>/);
   assert.equal((await fetch(base + '/app.js')).headers.get('content-type'), 'text/javascript; charset=utf-8');
   assert.equal((await fetch(base + '/nope.txt')).status, 404);

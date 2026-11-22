@@ -68,8 +68,10 @@ fn source_for(fake: Option<String>) -> Result<Arc<dyn PhotoSource>, String> {
 fn serve_mode(args: &[String], src: Arc<dyn PhotoSource>) {
     let port = arg_after(args, "--port").and_then(|p| p.parse().ok()).unwrap_or(4880u16);
     let app = server::App::new(src, "browser");
+    // the link carries this launch's key: only whoever has it can use the API
+    let key = app.key.clone();
     let port = server::start(app, port).expect("could not start server");
-    let url = format!("http://127.0.0.1:{}/", port);
+    let url = format!("http://127.0.0.1:{}/?key={}", port, key);
     println!("\n  uncapture  →  {}\n  ctrl-c to quit\n", url);
     if !args.iter().any(|a| a == "--no-open") {
         server::open_url(&url);

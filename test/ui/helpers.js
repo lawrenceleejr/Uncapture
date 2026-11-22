@@ -29,6 +29,13 @@ async function makeLibrary(browser, dir, sizes, { scenes = 6 } = {}) {
   return photos;
 }
 
+// the launch key of each server, by base URL
+const KEYS = {};
+// the page's address, with the key (the page turns it into a cookie)
+const pageUrl = (base) => `${base}/?key=${KEYS[base]}`;
+// headers for a test's own request to the API: the key and the page's header
+const keyed = (base, more = {}) => ({ 'X-Uncapture-Key': KEYS[base], ...more });
+
 function startServer(lib, { env = {}, home } = {}) {
   const tmp = home || fs.mkdtempSync(path.join(os.tmpdir(), 'uncapture-home-'));
   const proc = spawn(BIN, ['--serve', '--no-open', '--port', '0', '--fake', lib], { env: { ...process.env, HOME: tmp, TZ: 'UTC', ...env } });
@@ -36,8 +43,12 @@ function startServer(lib, { env = {}, home } = {}) {
     let out = '';
     proc.stdout.on('data', (d) => {
       out += d;
-      const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) resolve(`http://127.0.0.1:${m[1]}`);
+      // the printed link carries the launch's key, needed for every /api call
+      const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)\/\?key=([0-9a-f]+)/);
+      if (m) {
+        KEYS[`http://127.0.0.1:${m[1]}`] = m[2];
+        resolve(`http://127.0.0.1:${m[1]}`);
+      }
     });
     proc.stderr.on('data', (d) => (out += d));
     proc.on('error', reject);
@@ -52,10 +63,10 @@ async function openStart(browser, base, { viewport = { width: 1440, height: 900 
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   if (init) await init(page);
-  await page.goto(base + '/');
+  await page.goto(pageUrl(base));
   await page.waitForSelector('#start:not([hidden])');
   await page.waitForFunction(() => /cluster/.test(document.querySelector('#big-n').textContent));
   return { page, errors };
 }
 
-module.exports = { BIN, T0, makeLibrary, startServer, openStart };
+module.exports = { BIN, T0, makeLibrary, startServer, openStart, pageUrl, keyed, KEYS };

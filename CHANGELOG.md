@@ -34,3 +34,10 @@ TESTING.md.
   confirmation.
 - Every action has a key, an entry in the Menu (`M`) and in the Mac menu
   bar; `?` lists them all.
+- Security: the server answers only the app's own window, with a key made at
+  each launch (other programs on the Mac and web pages get nothing, not even
+  reads); requests from other sites are refused; the page runs only its own
+  scripts (a Content Security Policy) and the window can't be navigated away.
+  A photo whose original name isn't plain ASCII no longer crashes Share or
+  drag, and names from Photos can't point outside the share folder. Shared
+  files are cleared at each launch; sharp copies are capped at 1 GB.

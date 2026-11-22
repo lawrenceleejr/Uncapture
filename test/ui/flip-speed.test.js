@@ -16,7 +16,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
-const { makeLibrary, startServer } = require('./helpers');
+const { makeLibrary, startServer, pageUrl, keyed } = require('./helpers');
 
 const BUDGET_MS = 50;
 // cluster sizes: singles are hidden ("clusters only"), so ~50 clusters, up to 12
@@ -60,7 +60,7 @@ async function openViewer({ slow = false, settle = 0 } = {}) {
       for (const e of list.getEntries()) if (e.name === 'keydown') window.__keyDurations.push(e.duration);
     }).observe({ type: 'event', durationThreshold: 0, buffered: true });
   });
-  await page.goto(base + '/');
+  await page.goto(pageUrl(base));
   await page.waitForSelector('#start:not([hidden])');
   await page.waitForFunction(() => !document.querySelector('#start-open').disabled && /cluster/.test(document.querySelector('#big-n').textContent));
   await page.keyboard.press('Enter');
@@ -241,7 +241,7 @@ test('every flip key moves, within 50 ms', async () => {
 // Daily cleanup fetches sharp copies of the day's photos and swaps them in
 // as they arrive: flipping meanwhile stays within budget.
 test('daily cleanup: flipping while sharp copies arrive paints within 50 ms', async () => {
-  const put = (body) => fetch(base + '/api/settings', { method: 'PUT', headers: { 'X-Uncapture': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const put = (body) => fetch(base + '/api/settings', { method: 'PUT', headers: keyed(base, { 'X-Uncapture': '1', 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
   await put({ daily: true });
   try {
     const { page, errors } = await openViewer({ settle: 300 });

@@ -392,7 +392,9 @@ impl PhotoSource for PhotoKitSource {
             &[PHAssetResourceType::FullSizePhoto, PHAssetResourceType::Photo]
         };
         let res = resource_of(&a, kinds)?;
-        let name = unsafe { res.originalFilename() }.to_string().replace('/', "_");
+        // a plain file name, whatever Photos says (no folders, no "..", no dot-files)
+        let name: String = unsafe { res.originalFilename() }.to_string().chars().filter(|c| !c.is_control() && !"/\\:".contains(*c)).collect();
+        let name = name.trim_start_matches('.').to_string();
         let file = dir.join(if name.is_empty() { format!("{}.jpg", id) } else { name });
         write_resource(&res, &file, progress).then_some(file)
     }

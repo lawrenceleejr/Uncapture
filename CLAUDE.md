@@ -66,9 +66,20 @@ photos) and in the large view.
 
 ## Rules the code relies on
 
-- **The API only takes changes from its own page.** Every non-GET request
-  sends `X-Uncapture: 1` (the `api()` helper does); a foreign `Origin` or
-  `Host` is refused. Keep it that way for any new endpoint.
+- **The API answers only its own page.** A key made at each launch
+  (`App.key`) is in the window's URL (`?key=`, and in the link `--serve`
+  prints); `/` sets it as an HttpOnly, SameSite=Strict cookie and the page
+  strips it from the address. Every `/api` request needs that cookie (or
+  `X-Uncapture-Key`, as the tests send) or gets 401; a cross-site
+  `Sec-Fetch-Site`, a foreign `Origin` or `Host` is refused; every non-GET
+  sends `X-Uncapture: 1` (the `api()` helper does). The page has a strict
+  CSP (no inline scripts, nothing from elsewhere) and the window refuses to
+  navigate off 127.0.0.1:port. `/api/window` takes only fullscreen/state.
+  Keep all of it for any new endpoint. Tests: `pageUrl(base)` and
+  `keyed(base)` in `test/ui/helpers.js`.
+- **Nothing from Photos goes into a header or a path unchecked**: download
+  names through `attachment()`, `header()` never panics (a panic aborts the
+  app), export names lose `/ \ :`, control characters and leading dots.
 - **Ids are stable**: `short_id` is a hash of the `localIdentifier`. Marks
   are saved by `localIdentifier` in
   `~/Library/Application Support/Uncapture/state.json`.

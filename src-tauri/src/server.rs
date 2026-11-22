@@ -93,6 +93,7 @@ const SHARP_PX: u32 = 2048;
 pub const SHARP_MAX: usize = 300;
 const SHARP_WORKERS: usize = 3;
 const SHARP_KEEP: usize = 1500;
+const SHARP_BYTES: u64 = 1_000_000_000;
 
 #[derive(Default)]
 struct Sharp {
@@ -125,6 +126,27 @@ pub struct App {
     refresh: Mutex<(bool, bool)>, // (running, again)
     pub shell: &'static str,
     pub window: std::sync::OnceLock<WindowCtl>,
+    /// A secret made at each launch. Only the app's own window (or the link
+    /// printed by --serve) has it, and every /api request must carry it, so
+    /// other programs on this Mac can't use Uncapture's Photos access.
+    pub key: String,
+}
+
+/// 128 random bits, hex.
+fn new_key() -> String {
+    let mut b = [0u8; 16];
+    if File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_err() {
+        // (no /dev/urandom: time and pid, hashed; still unknown to others)
+        let seed = format!("{:?}{}", std::time::SystemTime::now(), std::process::id());
+        b[..8].copy_from_slice(&u64::from_str_radix(&short_id(&seed), 16).unwrap_or(0).to_le_bytes());
+        b[8..].copy_from_slice(&u64::from_str_radix(&short_id(&format!("{}x", seed)), 16).unwrap_or(0).to_le_bytes());
+    }
+    b.iter().map(|x| format!("{:02x}", x)).collect()
+}
+
+/// Equal without telling how much of it matched by how long it took.
+fn same_secret(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 fn home() -> PathBuf {
@@ -169,7 +191,10 @@ fn fmt_day(d: Ymd) -> String {
 impl App {
     pub fn new(src: Arc<dyn PhotoSource>, shell: &'static str) -> Arc<App> {
         let state: State = fs::read(data_dir().join("state.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        // files exported for sharing in an earlier run aren't needed any more
+        let _ = fs::remove_dir_all(data_dir().join("share"));
         let app = Arc::new(App {
+            key: new_key(),
             src,
             sharp: Mutex::new(Sharp::default()),
             sharp_sized: Mutex::new((HashMap::new(), Default::default())),
@@ -412,12 +437,25 @@ impl App {
 
 /* ------------------------------------------------------------ http plumbing */
 
+// (a value HTTP can't carry is dropped rather than panicking: a panic aborts the app)
 fn header(k: &str, v: &str) -> Header {
-    Header::from_bytes(k.as_bytes(), v.as_bytes()).unwrap()
+    Header::from_bytes(k.as_bytes(), v.as_bytes()).unwrap_or_else(|_| Header::from_bytes(k.as_bytes(), &b""[..]).unwrap())
+}
+
+/// Content-Disposition for a download: an ASCII name, and the real one.
+fn attachment(name: &str) -> String {
+    let ascii: String = name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' { c } else { '_' }).collect();
+    let pct: String = name.bytes().map(|b| if b.is_ascii_alphanumeric() || b"._-".contains(&b) { (b as char).to_string() } else { format!("%{:02X}", b) }).collect();
+    format!("attachment; filename=\"{}\"; filename*=UTF-8''{}", ascii, pct)
+}
+
+/// Headers on every response: no sniffing types, no referrer sent on.
+fn guarded(resp: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cursor<Vec<u8>>> {
+    resp.with_header(header("X-Content-Type-Options", "nosniff")).with_header(header("Referrer-Policy", "no-referrer"))
 }
 
 fn send_bytes(req: Request, code: u16, body: Vec<u8>, mime: &str) {
-    let resp = Response::from_data(body).with_status_code(code).with_header(header("Content-Type", mime)).with_header(header("Cache-Control", "no-store"));
+    let resp = guarded(Response::from_data(body).with_status_code(code).with_header(header("Content-Type", mime)).with_header(header("Cache-Control", "no-store")));
     let _ = req.respond(resp);
 }
 
@@ -443,15 +481,18 @@ fn prune_dirs(dir: &Path, keep: usize) {
 }
 
 // keep the newest sharp copies only
+// keep the newest sharp copies only: at most SHARP_KEEP, at most SHARP_BYTES
 fn prune_sharp() {
     let Ok(rd) = fs::read_dir(sharp_dir()) else { return };
-    let mut files: Vec<(std::time::SystemTime, PathBuf)> = rd.flatten().filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
-    if files.len() <= SHARP_KEEP {
-        return;
-    }
-    files.sort();
-    for (_, f) in &files[..files.len() - SHARP_KEEP] {
-        let _ = fs::remove_file(f);
+    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> =
+        rd.flatten().filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.metadata().ok()?.len(), e.path()))).collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+    let mut total = 0;
+    for (i, (_, len, f)) in files.iter().enumerate() {
+        total += len;
+        if i >= SHARP_KEEP || total > SHARP_BYTES {
+            let _ = fs::remove_file(f);
+        }
     }
 }
 
@@ -530,11 +571,25 @@ fn handle(app: Arc<App>, req: Request) {
         return err(req, 403, "forbidden host");
     }
     let (path, params) = split_url(req.url());
+    let port = get_header(&req, "Host").and_then(|h| h.rsplit_once(':')).map(|(_, p)| p.to_string()).unwrap_or_default();
+    let cookie_name = format!("uncapture_{}", port);
     if path.starts_with("/api/") {
-        // Only Uncapture's own page may use the API: a page elsewhere can't
-        // send this header without a CORS preflight, which is never granted,
-        // and a foreign Origin is refused outright.
-        let port = get_header(&req, "Host").and_then(|h| h.rsplit_once(':')).map(|(_, p)| p.to_string()).unwrap_or_default();
+        // Only Uncapture's own page may use the API.
+        // 1. Browsers say where a request comes from: only this page itself.
+        if let Some(site) = get_header(&req, "Sec-Fetch-Site") {
+            if site != "same-origin" && site != "none" {
+                return err(req, 403, "forbidden: not from Uncapture's page");
+            }
+        }
+        // 2. The launch's key, as the page's cookie or a header: other
+        //    programs on this Mac don't have it.
+        let has_key = cookie(&req, &cookie_name).map(|k| same_secret(k, &app.key)).unwrap_or(false)
+            || get_header(&req, "X-Uncapture-Key").map(|k| same_secret(k, &app.key)).unwrap_or(false);
+        if !has_key {
+            return err(req, 401, "open Uncapture from its window, or the link it printed");
+        }
+        // 3. A page elsewhere can't send this header without a CORS preflight,
+        //    which is never granted, and a foreign Origin is refused outright.
         if let Some(origin) = get_header(&req, "Origin") {
             let own = [format!("http://127.0.0.1:{}", port), format!("http://localhost:{}", port)];
             if !own.iter().any(|o| o == origin) {
@@ -546,11 +601,22 @@ fn handle(app: Arc<App>, req: Request) {
         }
         api(&app, req, &path, &params);
     } else {
-        serve_static(req, &path);
+        // the page, opened with the launch's key: it gets the key as a cookie
+        // (HttpOnly: the page's scripts never see it)
+        let cookie = (path == "/" && params.get("key").map(|k| same_secret(k, &app.key)).unwrap_or(false))
+            .then(|| format!("{}={}; Path=/; HttpOnly; SameSite=Strict", cookie_name, app.key));
+        serve_static(req, &path, cookie);
     }
 }
 
-fn serve_static(req: Request, path: &str) {
+fn cookie<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
+    get_header(req, "Cookie")?.split(';').filter_map(|kv| kv.trim().split_once('=')).find(|(k, _)| *k == name).map(|(_, v)| v)
+}
+
+// The page's own rules: its scripts, styles and pictures, nothing else.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+fn serve_static(req: Request, path: &str, cookie: Option<String>) {
     let rel = if path == "/" { "index.html" } else { path.trim_start_matches('/') };
     if rel.contains("..") {
         return err(req, 403, "forbidden");
@@ -565,7 +631,13 @@ fn serve_static(req: Request, path: &str) {
                 "png" => "image/png",
                 _ => "application/octet-stream",
             };
-            let resp = Response::from_data(f.contents().to_vec()).with_header(header("Content-Type", mime)).with_header(header("Cache-Control", "no-cache"));
+            let mut resp = guarded(Response::from_data(f.contents().to_vec()).with_header(header("Content-Type", mime)).with_header(header("Cache-Control", "no-cache")));
+            if mime.starts_with("text/html") {
+                resp = resp.with_header(header("Content-Security-Policy", CSP));
+            }
+            if let Some(c) = cookie {
+                resp = resp.with_header(header("Set-Cookie", &c));
+            }
             let _ = req.respond(resp);
         }
         None => err(req, 404, "not found"),
@@ -719,7 +791,7 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
             }
             return match app.exported(&id) {
                 Some(f) => {
-                    let name = f.file_name().map(|n| n.to_string_lossy().replace('"', "")).unwrap_or_default();
+                    let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
                     let mime = match ext.as_str() {
                         "jpg" | "jpeg" => "image/jpeg",
@@ -732,7 +804,7 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                     match File::open(&f) {
                         Ok(file) => {
                             let len = file.metadata().map(|m| m.len() as usize).ok();
-                            let headers = vec![header("Content-Type", mime), header("Content-Disposition", &format!("attachment; filename=\"{}\"", name))];
+                            let headers = vec![header("Content-Type", mime), header("Content-Disposition", &attachment(&name)), header("X-Content-Type-Options", "nosniff")];
                             let _ = req.respond(Response::new(StatusCode(200), headers, file, len, None));
                         }
                         Err(_) => err(req, 404, "not available"),
@@ -960,6 +1032,9 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
             let (Some(lat), Some(lon)) = (params.get("lat").and_then(|v| v.parse::<f64>().ok()), params.get("lon").and_then(|v| v.parse::<f64>().ok())) else {
                 return err(req, 400, "lat and lon");
             };
+            if !lat.is_finite() || !lon.is_finite() || lat.abs() > 90.0 || lon.abs() > 180.0 {
+                return err(req, 400, "not a place on Earth");
+            }
             let key = format!("{:.2},{:.2}", lat, lon);
             let file = data_dir().join("places.json");
             let mut cache: serde_json::Map<String, Value> = fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -1033,8 +1108,14 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
         }
         ("/api/window", _, true, _) => {
             let body = read_json(&mut req);
+            // the page asks only about full screen; share and drag (which carry a
+            // file path) go through /api/share and /api/drag, never from here
+            let cmd = body["cmd"].as_str().unwrap_or("");
+            if cmd != "fullscreen" && cmd != "state" {
+                return err(req, 400, "unknown");
+            }
             let out = match app.window.get() {
-                Some(w) => w(body["cmd"].as_str().unwrap_or(""), &body),
+                Some(w) => w(cmd, &body),
                 None => json!({}),
             };
             send_json(req, 200, out)
@@ -1100,4 +1181,29 @@ pub fn open_url(u: &str) {
 fn open_app(_name: &str) {
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("open").args(["-a", _name]).spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // a name HTTP can't carry as is (it used to abort the app)
+    #[test]
+    fn download_names_any_language() {
+        assert_eq!(attachment("B1.JPG"), "attachment; filename=\"B1.JPG\"; filename*=UTF-8''B1.JPG");
+        let h = attachment("Café \"1\".jpg");
+        assert_eq!(h, "attachment; filename=\"Caf_ _1_.jpg\"; filename*=UTF-8''Caf%C3%A9%20%221%22.jpg");
+        assert!(Header::from_bytes(&b"Content-Disposition"[..], h.as_bytes()).is_ok());
+        let _ = header("X-Bad", "line\nbreak"); // no panic
+    }
+
+    #[test]
+    fn keys_are_random_and_compared_whole() {
+        let (a, b) = (new_key(), new_key());
+        assert_eq!(a.len(), 32);
+        assert_ne!(a, b);
+        assert!(same_secret(&a, &a.clone()));
+        assert!(!same_secret(&a, &b));
+        assert!(!same_secret(&a, &a[..31]));
+    }
 }

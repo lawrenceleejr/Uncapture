@@ -81,6 +81,12 @@ const fmtWindow = (s) => (s < 60 ? `${s} s` : `${s / 60} min`);
 async function boot() {
   const params = new URLSearchParams(location.search);
   if (params.get('shell') === 'tauri') document.body.classList.add('app');
+  // the launch's key came in the address and is now a cookie: keep it out of
+  // the address bar, history and anything copied from there
+  if (params.has('key')) {
+    params.delete('key');
+    history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : ''));
+  }
   S.server = await api('GET', '/api/state');
   document.body.classList.add(S.server.platform);
   Object.assign(S.settings, S.server.settings);

@@ -17,7 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { webkit, chromium } = require('playwright');
-const { makeLibrary, startServer } = require('./helpers');
+const { makeLibrary, startServer, pageUrl, keyed } = require('./helpers');
 
 let browser;
 let srv;
@@ -70,7 +70,7 @@ test('WebKit: every flip shows drawn, colour pictures at once (grid and large vi
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(base + '/');
+  await page.goto(pageUrl(base));
   await page.waitForSelector('#start:not([hidden])');
   await page.waitForFunction(() => !document.querySelector('#start-open').disabled);
   await page.keyboard.press('Enter');
