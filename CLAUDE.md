@@ -142,6 +142,13 @@ photos) and in the large view.
 - Marks are saved debounced; anything that reads them from the server
   (Review, delete) calls `flushMarks()` first.
 
+## tiny_http is patched
+
+`src-tauri/vendor/tiny_http` is tiny_http 0.12.0 with one fix, used through
+`[patch.crates-io]`: its thread pool could leave a new connection queued for
+minutes (a picture or thumbnail batch that never came). See its
+`UNCAPTURE.md`. Keep it until a release fixes `TaskPool::spawn`.
+
 ## Layout
 
 - `src-tauri/src/`: `server.rs` (HTTP API), `cluster.rs` (clusters,

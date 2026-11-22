@@ -83,7 +83,11 @@ test('a photo stored sideways shows upright, and comes back from the large view 
   assert.ok(s.fh > s.fw, `its frame is upright (portrait): ${s.fw}×${s.fh}`);
   assert.ok(s.ph > s.pw, `and so is its picture: ${s.pw}×${s.ph}`);
   // the thumbnail itself too (the EXIF thumbnail is stored sideways)
-  const thumb = await page.evaluate((id) => new Promise((res) => thumbImage(id).then((i) => res([i.naturalWidth, i.naturalHeight]))), side);
+  const thumb = await page.evaluate(
+    // (a time limit: a lost connection once kept this waiting for minutes)
+    (id) => Promise.race([thumbImage(id).then((i) => [i.naturalWidth, i.naturalHeight]), new Promise((_, no) => setTimeout(() => no(new Error('no thumbnail in 15 s')), 15000))]),
+    side
+  );
   assert.ok(thumb[1] > thumb[0], `thumbnail ${thumb}`);
   // the large view, then back: same frame, same shape, the whole picture
   await page.keyboard.press('Tab');

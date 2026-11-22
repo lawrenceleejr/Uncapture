@@ -9,6 +9,8 @@ TESTING.md.
   (`[` `]`); a burst always stays in one cluster.
 - Photos and videos stored sideways (iPhone portrait shots) show upright;
   coming back from the large view no longer leaves cropped photos.
+- Fixed: now and then a thumbnail batch or a picture never arrived (a bug in
+  the HTTP library's thread pool, patched in a vendored copy).
 - The loupe from Brackit (`` ` ``) magnifies the original under the mouse.
 - Clusters only (`C`), daily cleanup on this day in earlier years (`T`), and
   a date range dragged on the chart of photos per month.
