@@ -34,6 +34,10 @@ TESTING.md.
   confirmation.
 - Every action has a key, an entry in the Menu (`M`) and in the Mac menu
   bar; `?` lists them all.
+- Undo the last delete (`B` or ⌘Z): Uncapture keeps a copy of each photo
+  before deleting it (files, edits, Live Photo video, date, place, heart,
+  albums) and adds them back to Photos, marked to keep. Until the next
+  delete or for a week, up to 4 GB.
 - Security: the server answers only the app's own window, with a key made at
   each launch (other programs on the Mac and web pages get nothing, not even
   reads); requests from other sites are refused; the page runs only its own

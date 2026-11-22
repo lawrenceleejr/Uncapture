@@ -75,6 +75,22 @@ happens next:
 - Deletions sync to every device on my iCloud account.
 - Live Photos and RAW+JPEG pairs go as a whole, with their edits.
 
+### Undo
+
+`B` (or ⌘Z) puts the last delete back. No app can take photos out of
+Recently Deleted, so before each delete Uncapture keeps its own copy of
+every photo: its files (the original, its edits, a Live Photo's video), its
+date, place, heart and the albums I made that it was in. Undo adds them
+back to Photos from those copies, as new items, marked to keep. The copies
+of the deleted ones also stay in Recently Deleted for 30 days, so I don't
+recover them there as well, or I'll have two of each.
+
+Only the last delete can be undone, until the next one or for a week, and
+copies are kept up to 4 GB per delete (the rest of a bigger delete can still
+be recovered in Photos). Making the copies can take a while when the
+photos are only in iCloud: Review shows how far it's got before macOS asks.
+Keywords, captions and people aren't copied.
+
 After each delete Uncapture says how much space it cleared, and the start
 screen keeps the running total: how much in all, how many photos, since
 when, with a small line of it growing.

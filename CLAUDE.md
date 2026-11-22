@@ -89,6 +89,17 @@ photos) and in the large view.
 - **Deleting only from Review, in one batch.** The server re-derives what's
   marked and deletes only what is both requested and marked; PhotoKit
   re-fetches by `localIdentifier` first, so what's gone is skipped.
+- **Undo of the last delete** (`B`, ⌘Z): PhotoKit can't recover from
+  Recently Deleted, so `/api/delete` first has the source `keep_copy` each
+  photo (every addable resource, written with `write_resource`; date,
+  place, heart, hidden, regular albums) into `undo-new/<id>/`, up to
+  `UNDO_BYTES`; once the delete happens that becomes `undo/` with
+  `batch.json` (else it's dropped, and the old undo stays). `/api/undo`
+  calls `restore` (PHAssetCreationRequest: all the resources if
+  `supportsAssetResourceTypes` takes them, else the originals, else the
+  rendered version as the original), marks what came back to keep, and
+  takes it off `deletions` and `dailyLog`. Nothing unchecked goes to
+  `addResourceWithType` or `addAssets`: an Objective-C exception aborts.
 - `S` writes the favorite to Photos at once (`/api/favorite`); it isn't a
   mark. Daily cleanup's log (`dailyLog` in state.json, by "MM-DD") is
   written by `/api/delete` when the page sends the day it's cleaning up.

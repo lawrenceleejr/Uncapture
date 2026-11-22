@@ -47,6 +47,16 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
       the same photo, same filters, with "… cleared" over it.
 - [ ] **Cancel.** Do it again and choose Don't Allow in macOS's dialog:
       "Nothing was deleted: the confirmation was cancelled."
+- [ ] **Undo.** Delete a few in one batch: an edited photo, a Live Photo,
+      a video, a ♥ photo in an album of your own (marked with `D`). Review
+      shows "Keeping a copy of each… N of M" first. Then `B`: "N photos put
+      back". In Photos each is back at its date, the edited one still
+      edited (and revertible), the Live Photo live, the ♥ and the album
+      there, the place on the map. Back in Uncapture they're kept (amber).
+      Note anything lost.
+- [ ] **Undo, from iCloud.** With "Optimize Mac Storage" on, delete photos
+      that are only in iCloud: the copies download first (watch the count),
+      and undo still works.
 - [ ] **Library changes.** Delete a photo in Photos while Uncapture is open,
       come back to Uncapture: it's gone from the cluster (within ~10 s).
 - [ ] **Burst.** A burst shows all its frames in one cluster, even at 5 s.
