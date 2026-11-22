@@ -459,7 +459,7 @@ test('undo: the last delete is put back from copies kept before it', async () =>
     assert.equal(st.undo, null);
     assert.deepEqual(st.deletions, []);
     assert.deepEqual(st.dailyLog, {}, 'the cleanup of 1 June is undone too');
-    assert.deepEqual(st.marks.keep.sort(), [id('U1.JPG'), id('U2.JPG'), id('U3.JPG')].sort(), 'what came back is kept, not marked to go again');
+    assert.deepEqual(st.marks.keep.sort(), [id('U1.JPG'), id('V1.JPG'), id('U2.JPG'), id('U3.JPG')].sort(), 'what came back is kept, not marked to go again');
     assert.ok(!fs.existsSync(undoDir));
     for (let i = 0; i < 50; i++) {
       const ids = (await call('GET', '/api/assets')).data.assets.map((a) => a[0]);
