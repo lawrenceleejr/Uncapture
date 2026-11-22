@@ -154,7 +154,7 @@ fn build_menu<R: tauri::Runtime>(h: &tauri::AppHandle<R>) -> tauri::Result<tauri
                 h,
                 "Review and Delete",
                 true,
-                &[&item("review", "Review Deletions   R")?, &item("delete", "Delete from Photos…   ↵ in Review")?, &item("undo", "Undo the Last Delete or Hide   B")?, &P::separator(h)?, &item("openphotos", "Open Photos")?],
+                &[&item("review", "Review Deletions   R")?, &item("delete", "Delete from Photos…   ↵ in Review")?, &item("undo", "Undo   B")?, &P::separator(h)?, &item("openphotos", "Open Photos")?],
             )?,
             &Submenu::with_items(h, "Window", true, &[&P::minimize(h, None)?, &P::close_window(h, None)?])?,
             &Submenu::with_items(h, "Help", true, &[&item("menu", "Menu   M")?, &item("keys", "Keyboard Shortcuts   ?")?])?,

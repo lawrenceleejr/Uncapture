@@ -561,6 +561,9 @@ test('hide: H hides a photo in the library and takes it out of the clusters at o
   assert.equal(r.data.hidden, 1);
   assert.ok(!(await inLibrary()).includes(id), 'out of the clusters straight away');
   assert.equal(JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files['SOUTH.JPG'].hidden, true, 'hidden in the library');
+  assert.deepEqual((await api('GET', '/api/state')).data.hidden.map((h) => h.id), [id], 'remembered, to show again later');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(tmp, 'home', '.uncapture', 'state.json'))).hidden.map((h) => h.local), ['SOUTH.JPG']);
+  assert.equal((await api('POST', '/api/unhide', { ids: ['0000000000000000'] })).status, 404, 'only photos Uncapture hid');
   for (let i = 0; i < 50; i++) {
     const ids = (await api('GET', '/api/assets')).data.assets.map((a) => a[0]);
     if (!ids.includes(id)) break;
@@ -568,8 +571,9 @@ test('hide: H hides a photo in the library and takes it out of the clusters at o
     await new Promise((res) => setTimeout(res, 100));
   }
   assert.equal((await api('POST', '/api/hide', { ids: [id] })).status, 404, 'a hidden photo is no longer there to hide');
-  const u = await api('POST', '/api/unhide');
+  const u = await api('POST', '/api/unhide', { ids: [id] });
   assert.deepEqual(u.data, { unhidden: 1, ids: [id] });
+  assert.deepEqual((await api('GET', '/api/state')).data.hidden, []);
   assert.equal(JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files['SOUTH.JPG'].hidden, false);
   for (let i = 0; i < 50; i++) {
     const ids = (await api('GET', '/api/assets')).data.assets.map((a) => a[0]);

@@ -55,6 +55,16 @@ struct State {
     /// every delete: when, how many, about how many bytes (the space cleared)
     deletions: Vec<Deletion>,
     first_delete_seen: bool,
+    /// photos hidden with H (newest last): B shows them again, one by one,
+    /// across launches
+    hidden: Vec<Hidden>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Hidden {
+    local: String,
+    /// s since 1970
+    at: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -135,8 +145,6 @@ pub struct App {
     undo_copying: Mutex<(usize, usize)>,
     /// a delete and an undo never run at once
     undo_lock: Mutex<()>,
-    /// the photos last hidden with H (localIdentifiers), for B to show again
-    hidden_last: Mutex<Vec<String>>,
 }
 
 /* Undo of the last delete. Apps can't recover photos from Recently Deleted,
@@ -187,7 +195,7 @@ fn undo_batch() -> Option<UndoBatch> {
 
 fn undo_json(b: &Option<UndoBatch>) -> Value {
     match b {
-        Some(b) => json!({ "photos": b.photos.len(), "bytes": b.photos.iter().map(|p| p.bytes).sum::<u64>(), "date": b.date, "notKept": b.not_kept }),
+        Some(b) => json!({ "photos": b.photos.len(), "bytes": b.photos.iter().map(|p| p.bytes).sum::<u64>(), "date": b.date, "notKept": b.not_kept, "at": b.at }),
         None => Value::Null,
     }
 }
@@ -267,7 +275,6 @@ impl App {
             window: std::sync::OnceLock::new(),
             undo_copying: Mutex::new((0, 0)),
             undo_lock: Mutex::new(()),
-            hidden_last: Mutex::new(Vec::new()),
         });
         // a week-old undo, or one left half-made by a crash, is dropped
         let _ = undo_batch();
@@ -725,6 +732,7 @@ fn state_json(app: &App) -> Value {
         "today": fmt_day(today()),
         "firstDeleteSeen": s.first_delete_seen,
         "undo": undo_json(&undo_batch()),
+        "hidden": s.hidden.iter().map(|h| json!({ "id": short_id(&h.local), "at": h.at })).collect::<Vec<_>>(),
         "windows": cluster::WINDOWS,
         "library": { "version": lib.version, "count": lib.assets.len(), "loading": lib.loading, "loaded": lib.loaded, "fetchMs": lib.fetch_ms },
         "marks": {
@@ -1216,21 +1224,37 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                     }
                 }
             }
-            *app.hidden_last.lock().unwrap() = locals;
+            {
+                let mut s = app.state.lock().unwrap();
+                s.hidden.retain(|h| !locals.contains(&h.local));
+                s.hidden.extend(locals.iter().map(|l| Hidden { local: l.clone(), at: unix_now() }));
+            }
+            app.save_state();
             app.refresh();
             let window = app.state.lock().unwrap().settings.window;
             send_json(req, 200, json!({ "hidden": local.len(), "toDelete": app.delete_count(window) }))
         }
         ("/api/unhide", _, true, _) => {
-            // B after H: the photos just hidden, shown again
-            let locals = std::mem::take(&mut *app.hidden_last.lock().unwrap());
+            // B after H: photos Uncapture hid (these ids, else the last one),
+            // shown again
+            let body = read_json(&mut req);
+            let ids = ids_of(&body["ids"]);
+            let locals: Vec<String> = {
+                let s = app.state.lock().unwrap();
+                if ids.is_empty() {
+                    s.hidden.last().map(|h| h.local.clone()).into_iter().collect()
+                } else {
+                    s.hidden.iter().filter(|h| ids.contains(&short_id(&h.local))).map(|h| h.local.clone()).collect()
+                }
+            };
             if locals.is_empty() {
                 return err(req, 404, "nothing hidden to show again");
             }
             if let Err(e) = app.src.set_hidden(&locals, false) {
-                *app.hidden_last.lock().unwrap() = locals;
                 return err(req, 500, &e);
             }
+            app.state.lock().unwrap().hidden.retain(|h| !locals.contains(&h.local));
+            app.save_state();
             app.refresh();
             send_json(req, 200, json!({ "unhidden": locals.len(), "ids": locals.iter().map(|l| short_id(l)).collect::<Vec<_>>() }))
         }
