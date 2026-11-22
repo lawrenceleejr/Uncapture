@@ -129,6 +129,21 @@ photos) and in the large view.
   key press: the page queues them. Always shown: in a cluster with a
   geotag, captions are two lines (`capOf` in app.js, `L.cap`) and the grid
   is laid out for that.
+- **Which way up.** `jpeg_of` in photokit.rs makes every picture the shape
+  Photos gives the asset (`pixelWidth`/`pixelHeight`): an NSImage's CGImage
+  can be the sensor's pixels with the turn kept aside, so a sideways one is
+  drawn by AppKit (when the NSImage's size is the upright one) or turned a
+  quarter clockwise. The page trusts that: frames keep Photos' shape (no
+  more guessing from the thumbnail), pictures are fitted whole
+  (`object-fit: contain`), display copies keep the picture's shape
+  (`fitIn`). Never crop.
+- **Turns** (`[` `]`): `turns` in state.json by localIdentifier, `/api/turns`;
+  `turnsOf(id)` in app.js. A turned box has the turned shape (`aspectOf`);
+  the upright picture is rotated into it by a transform (`turnBox`, `.t1`–
+  `.t3`; the large view and zoom set it inline). Display copies are made
+  upright (`plan()`'s `cw`/`ch`). Photos isn't changed.
+- **Loupe** (`` ` ``, Brackit's): `LP` and `drawLoupe` in app.js; reads the
+  original (`fullUrl`, last two kept) and maps the mouse through the turn.
 - Marks are saved debounced; anything that reads them from the server
   (Review, delete) calls `flushMarks()` first.
 

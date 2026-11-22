@@ -18,7 +18,7 @@ does.
 ## How it works
 
 - **Clusters.** Photos taken within a minute of each other are one cluster.
-  The window goes from 5 seconds to 30 minutes (`[` and `]`). A burst always
+  The window goes from 5 seconds to 30 minutes (`-` and `=`). A burst always
   stays in one cluster.
 - **Clusters only** (on by default, `C`) hides photos that have no others
   near them, so I only see what needs a decision.
@@ -48,13 +48,23 @@ In the viewer:
 | `D` (or `X`) | mark the photo for deletion (also how to delete a favorite) |
 | `S` | heart it in Photos (or take the heart off) |
 | `E` | share it: the Mac's share sheet (Messages, Mail, AirDrop…) |
+| `Space` | the photo large; `Z` actual pixels |
+| `[` `]` | turn the photo a quarter left / right |
+| `` ` `` | the loupe: a magnifier that follows the mouse; scroll for 50–400 % |
+| `R` | review everything marked |
+| `B` | undo the last delete |
+| `M`, `?` | every action, every key |
 
 When I come across a memory worth sending, `E` shares it, or I drag the photo
 out of the window into Messages or a folder. Either way it's the photo's own
 file from Photos, with my edits.
-| `Space` | the photo large; `Z` actual pixels |
-| `R` | review everything marked |
-| `M`, `?` | every action, every key |
+
+Photos show the way Photos shows them, portrait shots and videos included.
+One that's still sideways (some scans and old cameras) I turn with `[` or
+`]`. Uncapture remembers the turn and shows it that way everywhere; it
+doesn't change the photo in Photos. The loupe (`` ` ``, as in Brackit)
+magnifies the original under the mouse, in the grid or the large view, to
+check focus.
 
 The rule is the same as Brackit's picks. A cluster with no keeper is left
 alone. Once a cluster has a keeper, its other photos are marked: dimmed and
