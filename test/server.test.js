@@ -545,10 +545,14 @@ test('the page is served with a strict policy; paths outside it are not', async 
 
 test('hide: H hides a photo in the library and takes it out of the clusters at once; B shows it again', async () => {
   const id = idOf('SOUTH.JPG');
-  // (the asset list as it is now: earlier tests deleted some)
+  // the clusters' photos, by id: clusters index into the asset list of the
+  // same version (the library is read again in the background meanwhile)
   const inLibrary = async () => {
-    const assets = (await api('GET', '/api/assets')).data.assets;
-    return (await api('GET', '/api/library?window=60&clustersOnly=0')).data.clusters.flat().map((i) => assets[i] && assets[i][0]);
+    for (;;) {
+      const a = (await api('GET', '/api/assets')).data;
+      const l = (await api('GET', '/api/library?window=60&clustersOnly=0')).data;
+      if (l.version === a.version) return l.clusters.flat().map((i) => a.assets[i][0]);
+    }
   };
   assert.ok((await inLibrary()).includes(id));
   assert.equal((await api('POST', '/api/unhide')).status, 404, 'nothing hidden yet');
