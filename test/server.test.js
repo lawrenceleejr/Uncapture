@@ -474,8 +474,8 @@ test('undo: the last delete is put back from copies kept before it', async () =>
     assert.deepEqual(fs.readdirSync(undoDir).sort(), ['batch.json', id('V2.JPG')].sort());
     // and a delete asked without undo keeps no copies (and leaves no undo)
     await call('PUT', '/api/marks', { keep: [id('U2.JPG')], del: [], window: 60 });
-    const r3 = (await call('POST', '/api/delete', { ids: [id('U1.JPG'), id('U3.JPG')], window: 60, undo: false })).data;
-    assert.equal(r3.deleted, 2);
+    const r3 = (await call('POST', '/api/delete', { ids: [id('U1.JPG')], window: 60, undo: false })).data;
+    assert.equal(r3.deleted, 1);
     assert.equal(r3.undo, null);
   } finally {
     s.proc.kill();

@@ -159,6 +159,11 @@ test('B puts the last delete back, marked to keep, and the view stays where it w
   await page.keyboard.press('Enter');
   await page.waitForSelector('#viewer:not([hidden])');
   await page.waitForFunction(() => S.clusters.length > 0);
+  // single photos too: the last cluster is down to its keeper
+  if (await page.evaluate(() => S.settings.clustersOnly)) {
+    await page.keyboard.press('c');
+    await page.waitForFunction(() => !S.settings.clustersOnly && S.clusters.length === 4);
+  }
   await page.keyboard.press('End');
   await page.waitForFunction(() => cur().length === 1);
   const t = await page.evaluate(() => S.byId.get(cur()[0]).t);
