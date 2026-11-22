@@ -905,7 +905,7 @@ function delOf(c) {
 }
 
 function changeMarks(c, fn) {
-  noteMarks(c);
+  noteMarks(c, focusedId());
   const before = delOf(c).size;
   fn();
   S.toDelete += delOf(c).size - before;
@@ -2501,7 +2501,7 @@ function moveReviewCursor(i) {
 function reviewToggle(id) {
   const g = RV.data.clusters.find((x) => x.ids.includes(id));
   if (!g) return;
-  noteMarks([id]);
+  noteMarks([id], id);
   const before = delOf(g.ids).size;
   if (S.keep.has(id)) S.keep.delete(id);
   else {
@@ -2620,7 +2620,8 @@ function showCleared(r) {
    Marks and hearts are this session's; hides are kept by the server, so a
    new session starts with them (and the last delete, if it can still be
    undone), in the order they happened. */
-const UNDO = { busy: false, stack: [] };
+// (B pressed while an undo waits for Photos counts too: `queued`)
+const UNDO = { busy: false, stack: [], queued: 0 };
 
 function seedUndo() {
   const past = (S.server.hidden || []).filter((h) => !S.byId.has(h.id)).map((h) => ({ kind: 'hide', id: h.id, at: h.at }));
@@ -2629,10 +2630,11 @@ function seedUndo() {
   UNDO.stack = past;
 }
 
-// how these photos' marks are now, before they change
-function noteMarks(ids) {
+// how these photos' marks are now, before they change; `at`: the photo the
+// key was pressed on, where undoing it goes back to
+function noteMarks(ids, at) {
   if (!ids || !ids.length) return;
-  UNDO.stack.push({ kind: 'marks', marks: ids.map((id) => [id, S.keep.has(id), S.del.has(id)]) });
+  UNDO.stack.push({ kind: 'marks', at: at || ids[0], marks: ids.map((id) => [id, S.keep.has(id), S.del.has(id)]) });
 }
 
 // to the photo an undo was about, in the clusters or the large view
@@ -2647,7 +2649,8 @@ function showPhoto(id) {
 }
 
 async function undoLast() {
-  if (UNDO.busy || RV.busy) return;
+  if (RV.busy) return;
+  if (UNDO.busy) return void UNDO.queued++;
   const e = UNDO.stack.at(-1);
   if (!e) return toast('Nothing to undo');
   if (e.kind === 'delete') return doUndo();
@@ -2662,7 +2665,7 @@ async function undoLast() {
     TL.version++;
     if (!$('#review').hidden) renderReview();
     else {
-      showPhoto(e.marks[0][0]);
+      showPhoto(e.at);
       updateMarksUi();
       if (S.solo) renderSoloCaption();
     }
@@ -2677,6 +2680,11 @@ async function undoLast() {
   }
   if (done && UNDO.stack.at(-1) === e) UNDO.stack.pop();
   UNDO.busy = false;
+  if (UNDO.queued) {
+    UNDO.queued--;
+    if (done) undoLast();
+    else UNDO.queued = 0; // (it failed: don't undo what's under it unasked)
+  }
 }
 
 function undoLine(u) {

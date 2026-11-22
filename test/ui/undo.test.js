@@ -29,7 +29,16 @@ test.after(async () => {
   if (srv) srv.proc.kill();
 });
 
-const manifest = () => JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files || {};
+// (the server may be writing it just then: read again)
+const manifest = () => {
+  for (let i = 0; ; i++) {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files || {};
+    } catch (e) {
+      if (i > 20) throw e;
+    }
+  }
+};
 const marks = (page) => page.evaluate(() => ({ keep: [...S.keep].sort(), del: [...S.del].sort(), toDelete: S.toDelete }));
 
 async function openViewer() {
@@ -66,7 +75,7 @@ test('B undoes marks and hearts one at a time, as far back as they go, each on i
   await page.keyboard.press('b');
   await page.waitForFunction(() => S.idx === 0 && !S.byId.get(focusedId()).fav);
   assert.equal(await page.evaluate(() => focusedId()), ids[0][0]);
-  await page.waitForFunction(() => /Undone/.test(document.querySelector('#toast').textContent));
+  await page.waitForFunction(() => /Undone: no longer a favorite/.test(document.querySelector('#toast').textContent));
   assert.equal(manifest()['IMG_0001.JPG'].favorite, false);
   // B: the D mark; B: the keeper
   await page.keyboard.press('b');
@@ -74,6 +83,14 @@ test('B undoes marks and hearts one at a time, as far back as they go, each on i
   assert.equal(await page.evaluate(() => focusedId()), ids[0][2]);
   await page.keyboard.press('b');
   await page.waitForFunction(() => S.keep.size === 0);
+  // quick presses while one waits for Photos all count: ♥ twice, then B B
+  await page.keyboard.press('s');
+  await page.waitForFunction(() => /Favorite/.test(document.querySelector('#toast').textContent));
+  await page.keyboard.press('s');
+  await page.waitForFunction(() => /No longer a favorite/.test(document.querySelector('#toast').textContent));
+  await page.keyboard.press('b');
+  await page.keyboard.press('b');
+  await page.waitForFunction(() => UNDO.stack.length === 0 && !UNDO.busy && !S.byId.get(focusedId()).fav);
   assert.deepEqual(await marks(page), empty);
   // the server has it so too
   await page.waitForTimeout(400);

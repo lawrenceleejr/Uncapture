@@ -437,7 +437,8 @@ test('undo: the last delete is put back from copies kept before it', async () =>
     await call('PUT', '/api/marks', { keep: [id('U1.JPG')], del: [id('U3.JPG')], window: 60 });
     const r = (await call('POST', '/api/delete', { ids: [id('U2.JPG'), id('U3.JPG')], window: 60, day: '06-01' })).data;
     assert.equal(r.deleted, 2);
-    assert.deepEqual(r.undo, { photos: 2, bytes: r.bytes, date: '2025-06-01', notKept: 0 });
+    assert.deepEqual({ ...r.undo, at: 0 }, { photos: 2, bytes: r.bytes, date: '2025-06-01', notKept: 0, at: 0 });
+    assert.ok(Math.abs(r.undo.at - Date.now() / 1000) < 60, 'when');
     assert.deepEqual(fs.readdirSync(undoDir).sort(), ['batch.json', id('U2.JPG'), id('U3.JPG')].sort(), 'a copy of each');
     assert.ok(!fs.existsSync(path.join(dir, 'U2.JPG')));
     // a delete that's cancelled keeps the undo there was

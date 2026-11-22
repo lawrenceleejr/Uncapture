@@ -103,9 +103,14 @@ photos) and in the large view.
 - `H` hides at once (`/api/hide`: `set_hidden` by localIdentifier, then the
   asset is flagged hidden in the server's list so clusters leave it out
   before the library is read again). The page takes it out of the cluster
-  in the key press (`hidePhoto`). `B` shows it again (`/api/unhide`, the
-  last hide only) when `UNDO.last` is 'hide'; otherwise B undoes the last
-  delete.
+  in the key press (`hidePhoto`). The server keeps what it hid (`hidden` in
+  state.json); `/api/unhide` takes ids.
+- **Undo history** (`UNDO.stack` in app.js, `B`/⌘Z, `undoLast`): marks
+  (`noteMarks`, called by `changeMarks` and `reviewToggle` before they
+  change anything, with the photo the key was on), hearts (`setFavorite`),
+  hides and the last delete; newest last, unlimited. A new session is
+  seeded (`seedUndo`) with the server's hides and the last delete, by time.
+  Any new action that changes marks or Photos must push an entry.
 - `S` writes the favorite to Photos at once (`/api/favorite`); it isn't a
   mark. Daily cleanup's log (`dailyLog` in state.json, by "MM-DD") is
   written by `/api/delete` when the page sends the day it's cleaning up.

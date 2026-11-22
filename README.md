@@ -52,7 +52,7 @@ In the viewer:
 | `Space` | the photo large; `Z` actual pixels |
 | `` ` `` | the loupe: a magnifier that follows the mouse; scroll for 50–400 % |
 | `R` | review everything marked |
-| `B` | undo the last delete, or the last hide |
+| `B` | undo: marks, hearts, hides, the last delete, one step at a time, as far back as they go |
 | `M`, `?` | every action, every key |
 
 When I come across a memory worth sending, `E` shares it, or I drag the photo

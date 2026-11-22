@@ -39,7 +39,10 @@ Build from source (`npm ci && npm run app`) or open the `.dmg` from CI.
 - [ ] **Video.** A cluster with a video: `Space` plays it.
 - [ ] **Hide.** `H` on a photo: it leaves the grid at once and is in
       Photos' Hidden album. `B`: it's back, in its cluster, with the focus on
-      it; no longer hidden in Photos.
+      it; no longer hidden in Photos. Hide two, quit, open again: `B` `B`
+      shows both again, the second first.
+- [ ] **Undo.** Keep, `D`, `S` on a few photos in different clusters, then
+      `B` repeatedly: each goes back, on its photo; the ♥ goes in Photos too.
 - [ ] **Which way up.** Portrait iPhone photos and portrait videos are
       upright in the grid, the timeline preview, Review and the large view.
       Open one large and come back: the grid shows it whole, not cropped.
