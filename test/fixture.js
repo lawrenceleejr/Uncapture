@@ -150,7 +150,7 @@ function writeLibrary(dir, photos, manifest = {}) {
       fs.writeFileSync(
         f,
         buildJpeg(
-          { dateTime: exifTime(p.t - ms, tz), offset: exifOffset(tz), subSec: ms ? String(ms).padStart(3, '0') : undefined, width: p.width || 4032, height: p.height || 3024, gps: p.gps },
+          { dateTime: exifTime(p.t - ms, tz), offset: exifOffset(tz), subSec: ms ? String(ms).padStart(3, '0') : undefined, width: p.width || 4032, height: p.height || 3024, gps: p.gps, orientation: p.orientation },
           { image: p.image, thumb: p.thumb }
         )
       );

@@ -112,7 +112,7 @@ photos) and in the large view.
   page has for a photo (`sharpestLoaded`: its own, the large view's, the
   original), and closing the large view rebuilds the grid. Daily cleanup asks for sharp copies of the day (`/api/sharp`,
   up to 300): downloaded with `download()` in the background, kept in
-  `Application Support/Uncapture/sharp`, served by `/api/img` resized; the
+  `Application Support/Uncapture/sharp-v2`, served by `/api/img` resized; the
   page swaps them in place (`sharpened`).
 - Share (`E`) and drag out: `/api/share` and `/api/drag` write the photo's
   own file (`export_original`: the edited version, its original name) into

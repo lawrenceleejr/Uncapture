@@ -36,7 +36,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 # dragging a photo out of the window as a file (the app window only)
 drag = { version = "2", optional = true }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage", "CGContext", "CGBitmapContext", "CGColorSpace"] }
 # place names for geotags (Apple's reverse geocoder, as Photos uses)
 objc2-core-location = { version = "0.3", default-features = false, features = ["std", "block2", "CLGeocoder", "CLLocation", "CLPlacemark"] }
 

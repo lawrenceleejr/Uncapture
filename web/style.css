@@ -162,7 +162,7 @@ body.fs #stage { top: 12px; bottom: 6px; left: 12px; right: 12px; }
 .look .box { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; }
 .look .frame { position: relative; cursor: zoom-in; background: #050505; }
 .look .frame img, #solo-frame img { -webkit-user-drag: none; } /* a drag out is the app's, with the photo's file */
-.look .frame > img, .look .frame > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
+.look .frame > img, .look .frame > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; }
 /* (no blur on placeholders: a CSS filter on a big picture costs a flip its budget) */
 /* keep: the amber outline. Marked for deletion: dimmed and struck through (.strike) */
 .look.keep .frame { box-shadow: 0 0 0 2px var(--accent); }
@@ -261,7 +261,25 @@ body.fs #peek { display: none; }
 .rrow { display: flex; flex-wrap: wrap; gap: 8px; }
 .rtile { position: relative; width: 150px; height: 112px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .rtile .pic { position: relative; background: #050505; }
-.rtile .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.rtile .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+/* turned with [ ]: the box has the turned shape, the upright picture is
+   rotated into it (a transform: no filter on pictures) */
+.frame.t1 > img, .frame.t1 > canvas, .frame.t3 > img, .frame.t3 > canvas,
+.pic.t1 > img, .pic.t3 > img { inset: auto; left: 50%; top: 50%; width: var(--fh); height: var(--fw); transform: translate(-50%, -50%) rotate(90deg); }
+.frame.t3 > img, .frame.t3 > canvas, .pic.t3 > img { transform: translate(-50%, -50%) rotate(-90deg); }
+.frame.t2 > img, .frame.t2 > canvas, .pic.t2 > img { transform: rotate(180deg); }
+#peek .peek-img.t1 img, #peek .peek-img.t3 img { max-width: 106px; max-height: 160px; transform: rotate(90deg); }
+#peek .peek-img.t3 img { transform: rotate(-90deg); }
+#peek .peek-img.t2 img { transform: rotate(180deg); }
+
+/* the loupe (Brackit's): a magnifier following the mouse */
+#loupe {
+  position: fixed; z-index: 70; width: 240px; height: 240px; border-radius: 50%; overflow: hidden; pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(233,230,223,.9), 0 10px 40px rgba(0,0,0,.6); background: #0d0d0c;
+}
+#loupe canvas { width: 100%; height: 100%; display: block; }
+#loupe .loupe-zoom { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 10.5px; color: var(--ink); background: rgba(13,13,12,.7); padding: 1px 6px; border-radius: 8px; }
+body.loupe-on .look .frame, body.loupe-on #solo-frame { cursor: none; }
 .rtile.keep .pic { box-shadow: 0 0 0 2px var(--accent); }
 .rtile.del .pic img { opacity: .55; }
 .rtile.cursor .pic { outline: 1px solid var(--ink); outline-offset: 3px; }

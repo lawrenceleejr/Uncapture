@@ -270,7 +270,7 @@ test('sharp copies: downloaded in the background, kept on disk, served for the p
   assert.equal(st.job, start.job);
   assert.equal(st.done, 2);
   assert.deepEqual([...st.ready].sort(), [idOf('C1.JPG'), idOf('C2.JPG')].sort());
-  const dir = path.join(tmp, 'home', '.uncapture', 'sharp');
+  const dir = path.join(tmp, 'home', '.uncapture', 'sharp-v2');
   assert.deepEqual(fs.readdirSync(dir).sort(), [`${idOf('C1.JPG')}.jpg`, `${idOf('C2.JPG')}.jpg`].sort());
   // served for display sizes from the copy
   fs.writeFileSync(path.join(dir, `${idOf('C1.JPG')}.jpg`), Buffer.from('sharp copy'));
@@ -321,6 +321,18 @@ test('marks: one keeper marks the rest of its cluster; favorites are protected',
   // and back in /api/state as ids
   const st = (await api('GET', '/api/state')).data;
   assert.deepEqual(st.marks.keep.sort(), [idOf('A2.JPG'), idOf('C1.JPG')].sort());
+});
+
+test('turns: a photo turned with [ ] is kept by localIdentifier, until turned back', async () => {
+  assert.deepEqual((await api('GET', '/api/state')).data.turns, {});
+  assert.deepEqual((await api('PUT', '/api/turns', { id: idOf('B1.JPG'), turns: 3 })).data, { turns: 3 });
+  assert.deepEqual((await api('PUT', '/api/turns', { id: idOf('C1.JPG'), turns: -1 })).data, { turns: 3 }, 'any number of quarter turns');
+  assert.deepEqual((await api('GET', '/api/state')).data.turns, { [idOf('B1.JPG')]: 3, [idOf('C1.JPG')]: 3 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(tmp, 'home', '.uncapture', 'state.json'))).turns, { 'B1.JPG': 3, 'C1.JPG': 3 }, 'by localIdentifier');
+  await api('PUT', '/api/turns', { id: idOf('B1.JPG'), turns: 4 });
+  await api('PUT', '/api/turns', { id: idOf('C1.JPG'), turns: 0 });
+  assert.deepEqual((await api('GET', '/api/state')).data.turns, {});
+  assert.equal((await api('PUT', '/api/turns', { id: '0000000000000000', turns: 1 })).status, 404);
 });
 
 test('settings are saved; the window snaps to a step', async () => {

@@ -63,14 +63,14 @@ test('start screen: window, filters, dates, open', async () => {
   const { page, errors } = await openStart(browser, base);
   assert.match(await text(page, '#big-n'), /^16 clusters · 56 photos$/);
   assert.equal(await text(page, '#windows .on'), '1 min');
-  await page.keyboard.press(']');
+  await page.keyboard.press('=');
   await settle(page);
   assert.equal(await text(page, '#windows .on'), '2 min');
-  await page.keyboard.press('[');
-  await page.keyboard.press('[');
+  await page.keyboard.press('-');
+  await page.keyboard.press('-');
   await settle(page);
   assert.equal(await text(page, '#windows .on'), '30 s');
-  await page.keyboard.press(']');
+  await page.keyboard.press('=');
   // clusters only (C)
   await page.keyboard.press('c');
   await settle(page, 300);
@@ -292,12 +292,12 @@ test('viewer: the window and filters re-cluster and keep your place', async () =
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Tab');
   const before = await page.evaluate(() => focusedId());
-  await page.keyboard.press('[');
+  await page.keyboard.press('-');
   await page.waitForFunction(() => S.settings.window === 30 && !document.querySelector('#toast').hidden);
   await settle(page, 300);
   assert.equal(await page.evaluate(() => focusedId()), before, 'still on the same photo');
   assert.match(await text(page, '#c-window'), /30 s/);
-  await page.keyboard.press(']');
+  await page.keyboard.press('=');
   await page.waitForFunction(() => S.settings.window === 60);
   // clusters only off: the single photo shows
   await page.keyboard.press('c');

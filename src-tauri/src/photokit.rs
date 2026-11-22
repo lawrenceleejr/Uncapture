@@ -13,8 +13,10 @@ use block2::RcBlock;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{define_class, msg_send, sel, AllocAnyThread, DefinedClass};
-use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSImageCompressionFactor};
-use objc2_core_foundation::CGSize;
+use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSGraphicsContext, NSImage, NSImageCompressionFactor};
+use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
+use objc2_core_graphics::{CGColorSpace, CGContext, CGImage, CGImageAlphaInfo};
+use objc2_foundation::{NSPoint, NSRect, NSSize};
 use objc2_foundation::{NSArray, NSDate, NSDictionary, NSError, NSNumber, NSObjectNSKeyValueCoding, NSString, NSURL};
 // CLGeocoder is deprecated in the newest SDK (for MapKit) but is what works
 // back to macOS 11, the app's minimum
@@ -167,9 +169,11 @@ impl PhotoKitSource {
             }
             let slot: Rc<RefCell<Option<(Vec<u8>, u32)>>> = Rc::new(RefCell::new(None));
             let s2 = slot.clone();
+            // the shape Photos says the asset has: every picture is made to match
+            let want = unsafe { (asset.pixelWidth(), asset.pixelHeight()) };
             let done = RcBlock::new(move |img: *mut NSImage, _info: *mut NSDictionary| {
                 if let Some(img) = unsafe { img.as_ref() } {
-                    *s2.borrow_mut() = jpeg_of(img, quality);
+                    *s2.borrow_mut() = jpeg_of(img, quality, want);
                 }
             });
             unsafe {
@@ -200,11 +204,68 @@ impl PhotoKitSource {
     }
 }
 
-/// NSImage → JPEG bytes (AppKit's encoder, via a CGImage: no TIFF detour).
-fn jpeg_of(img: &NSImage, quality: f64) -> Option<(Vec<u8>, u32)> {
-    let cg = unsafe { img.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None) }?;
-    let long = objc2_core_graphics::CGImage::width(Some(&cg)).max(objc2_core_graphics::CGImage::height(Some(&cg))) as u32;
-    let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
+/* Pictures upright. Photos' own width and height (`want`) are the shape the
+   photo is shown in; the NSImage's CGImage can come out sideways (the
+   sensor's pixels, the turn kept aside as an orientation), as iPhone portrait
+   photos and videos are stored. Then it's turned: by AppKit when the NSImage
+   itself knows the turn (its size is the upright one), else a quarter turn
+   clockwise, the way an iPhone held upright stores them. */
+const fn landscape(w: f64, h: f64) -> bool {
+    w > h * 1.05
+}
+const fn portrait(w: f64, h: f64) -> bool {
+    h > w * 1.05
+}
+fn sideways(w: f64, h: f64, want: (f64, f64)) -> bool {
+    (landscape(w, h) && portrait(want.0, want.1)) || (portrait(w, h) && landscape(want.0, want.1))
+}
+
+/// A bitmap context `w`×`h` in the picture's own colours (sRGB if that can't be).
+fn bitmap(cg: &CGImage, w: usize, h: usize) -> Option<CFRetained<CGContext>> {
+    let space = CGImage::color_space(Some(cg));
+    // 8 bits per channel, RGB, no alpha (kCGImageAlphaNoneSkipLast)
+    let make = |s: Option<&CGColorSpace>| unsafe { objc2_core_graphics::CGBitmapContextCreate(std::ptr::null_mut(), w, h, 8, 0, s, CGImageAlphaInfo::NoneSkipLast.0) };
+    space.as_deref().and_then(|s| make(Some(s))).or_else(|| make(CGColorSpace::new_device_rgb().as_deref()))
+}
+
+/// The picture turned a quarter clockwise.
+fn turned(cg: &CGImage) -> Option<CFRetained<CGImage>> {
+    let (w, h) = (CGImage::width(Some(cg)), CGImage::height(Some(cg)));
+    let ctx = bitmap(cg, h, w)?;
+    // (y up) a point (x, y) goes to (y, w − x)
+    CGContext::translate_ctm(Some(&ctx), 0.0, w as f64);
+    CGContext::rotate_ctm(Some(&ctx), -std::f64::consts::FRAC_PI_2);
+    CGContext::draw_image(Some(&ctx), CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(w as f64, h as f64)), Some(cg));
+    objc2_core_graphics::CGBitmapContextCreateImage(Some(&ctx))
+}
+
+/// The NSImage drawn by AppKit at `w`×`h` pixels, which applies any turn it carries.
+fn drawn(img: &NSImage, cg: &CGImage, w: usize, h: usize) -> Option<CFRetained<CGImage>> {
+    let ctx = bitmap(cg, w, h)?;
+    let ns = NSGraphicsContext::graphicsContextWithCGContext_flipped(&ctx, false);
+    NSGraphicsContext::saveGraphicsState_class();
+    NSGraphicsContext::setCurrentContext(Some(&ns));
+    img.drawInRect(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(w as f64, h as f64)));
+    NSGraphicsContext::restoreGraphicsState_class();
+    objc2_core_graphics::CGBitmapContextCreateImage(Some(&ctx))
+}
+
+/// NSImage → upright JPEG bytes (AppKit's encoder, via a CGImage: no TIFF detour).
+fn jpeg_of(img: &NSImage, quality: f64, want: (usize, usize)) -> Option<(Vec<u8>, u32)> {
+    let raw = unsafe { img.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None) }?;
+    let (w, h) = (CGImage::width(Some(&raw)), CGImage::height(Some(&raw)));
+    let size = img.size();
+    let want = if want.0 > 0 && want.1 > 0 { (want.0 as f64, want.1 as f64) } else { (size.width, size.height) };
+    let upright = if !sideways(w as f64, h as f64, want) {
+        None
+    } else if !sideways(size.width, size.height, want) {
+        drawn(img, &raw, h, w)
+    } else {
+        turned(&raw)
+    };
+    let cg: &CGImage = upright.as_deref().unwrap_or(&raw);
+    let long = CGImage::width(Some(cg)).max(CGImage::height(Some(cg))) as u32;
+    let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), cg);
     let q = NSNumber::new_f64(quality);
     let props: Retained<NSDictionary<NSString, AnyObject>> = NSDictionary::from_slices(&[unsafe { NSImageCompressionFactor }], &[&*q as &AnyObject]);
     let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::JPEG, &props) }?;

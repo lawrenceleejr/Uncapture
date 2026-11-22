@@ -255,7 +255,10 @@ impl PhotoSource for FakeSource {
             f.seek(SeekFrom::Start(off)).ok()?;
             let mut buf = vec![0; len as usize];
             f.read_exact(&mut buf).ok()?;
-            return Some(buf);
+            // upright, as PhotoKit's pictures are: the EXIF thumbnail is stored
+            // the way the sensor saw it
+            let orientation = e.orientation;
+            return Some(if orientation > 1 { crate::resize::resize_jpeg(&buf, 4096, orientation).unwrap_or(buf) } else { buf });
         }
         drop(files);
         self.resized(id, _px).map(|b| b.to_vec())
