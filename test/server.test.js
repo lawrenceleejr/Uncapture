@@ -542,3 +542,32 @@ test('the page is served with a strict policy; paths outside it are not', async 
   assert.equal((await fetch(base + '/app.js')).headers.get('content-type'), 'text/javascript; charset=utf-8');
   assert.equal((await fetch(base + '/nope.txt')).status, 404);
 });
+
+test('hide: H hides a photo in the library and takes it out of the clusters at once; B shows it again', async () => {
+  const id = idOf('SOUTH.JPG');
+  const inLibrary = async () => (await api('GET', '/api/library?window=60&clustersOnly=0')).data.clusters.flat().map((i) => ASSETS[i] && ASSETS[i][0]);
+  assert.ok((await inLibrary()).includes(id));
+  assert.equal((await api('POST', '/api/unhide')).status, 404, 'nothing hidden yet');
+  const r = await api('POST', '/api/hide', { ids: [id] });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.hidden, 1);
+  assert.ok(!(await inLibrary()).includes(id), 'out of the clusters straight away');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files['SOUTH.JPG'].hidden, true, 'hidden in the library');
+  for (let i = 0; i < 50; i++) {
+    const ids = (await api('GET', '/api/assets')).data.assets.map((a) => a[0]);
+    if (!ids.includes(id)) break;
+    assert.ok(i < 49, 'and gone from the assets once read again');
+    await new Promise((res) => setTimeout(res, 100));
+  }
+  assert.equal((await api('POST', '/api/hide', { ids: [id] })).status, 404, 'a hidden photo is no longer there to hide');
+  const u = await api('POST', '/api/unhide');
+  assert.deepEqual(u.data, { unhidden: 1, ids: [id] });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(lib, 'fake.json'))).files['SOUTH.JPG'].hidden, false);
+  for (let i = 0; i < 50; i++) {
+    const ids = (await api('GET', '/api/assets')).data.assets.map((a) => a[0]);
+    if (ids.includes(id)) break;
+    assert.ok(i < 49, 'back in the assets');
+    await new Promise((res) => setTimeout(res, 100));
+  }
+  assert.equal((await api('POST', '/api/unhide')).status, 404, 'once');
+});

@@ -135,6 +135,11 @@ pub trait PhotoSource: Send + Sync {
     fn on_change(&self, f: Box<dyn Fn() + Send + Sync>);
     /// sets or clears the heart in Photos (the same favorite Photos shows)
     fn set_favorite(&self, ids: &[AssetId], on: bool) -> Result<(), String>;
+    /// hides or shows photos in Photos (its Hidden album), by
+    /// localIdentifier: a hidden photo isn't in `assets` any more
+    fn set_hidden(&self, _local_ids: &[String], _on: bool) -> Result<(), String> {
+        Err("can't hide photos here".into())
+    }
     /// a sharp copy at about `px`, downloading from iCloud if need be (for
     /// daily cleanup's prefetch; `image` with a size never downloads)
     fn download(&self, id: &AssetId, px: u32) -> Option<Vec<u8>> {

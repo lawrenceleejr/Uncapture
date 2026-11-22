@@ -675,6 +675,38 @@ impl PhotoSource for PhotoKitSource {
         }
     }
 
+    // Hidden in Photos (its Hidden album). By localIdentifier, hidden ones
+    // included: putting one back means finding it among the hidden.
+    fn set_hidden(&self, local_ids: &[String], on: bool) -> Result<(), String> {
+        let strings: Vec<Retained<NSString>> = local_ids.iter().map(|s| NSString::from_str(s)).collect();
+        let opts = unsafe { PHFetchOptions::new() };
+        unsafe { opts.setIncludeHiddenAssets(true) };
+        let result = unsafe { PHAsset::fetchAssetsWithLocalIdentifiers_options(&NSArray::from_retained_slice(&strings), Some(&opts)) };
+        let assets: Vec<Retained<PHAsset>> = (0..unsafe { result.count() }).map(|i| unsafe { result.objectAtIndex(i) }).collect();
+        if assets.is_empty() {
+            return Err("not in the library".into());
+        }
+        let change = RcBlock::new(move || unsafe {
+            for a in &assets {
+                PHAssetChangeRequest::changeRequestForAsset(a).setHidden(on);
+            }
+        });
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(Some(tx));
+        let done = RcBlock::new(move |ok: Bool, e: *mut NSError| {
+            let msg = unsafe { e.as_ref() }.map(|e| e.localizedDescription().to_string());
+            if let Some(t) = tx.lock().unwrap().take() {
+                let _ = t.send((ok.as_bool(), msg));
+            }
+        });
+        unsafe { PHPhotoLibrary::sharedPhotoLibrary().performChanges_completionHandler(RcBlock::as_ptr(&change), Some(&done)) };
+        match rx.recv_timeout(Duration::from_secs(60)) {
+            Ok((true, _)) => Ok(()),
+            Ok((false, m)) => Err(m.unwrap_or_else(|| "Photos said no".into())),
+            Err(_) => Err("Photos did not answer".into()),
+        }
+    }
+
     // Apple's reverse geocoder (what Photos uses): it answers on the main
     // queue, which the app window keeps running. One question at a time.
     #[allow(deprecated)]

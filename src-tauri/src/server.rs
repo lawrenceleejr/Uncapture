@@ -135,6 +135,8 @@ pub struct App {
     undo_copying: Mutex<(usize, usize)>,
     /// a delete and an undo never run at once
     undo_lock: Mutex<()>,
+    /// the photos last hidden with H (localIdentifiers), for B to show again
+    hidden_last: Mutex<Vec<String>>,
 }
 
 /* Undo of the last delete. Apps can't recover photos from Recently Deleted,
@@ -265,6 +267,7 @@ impl App {
             window: std::sync::OnceLock::new(),
             undo_copying: Mutex::new((0, 0)),
             undo_lock: Mutex::new(()),
+            hidden_last: Mutex::new(Vec::new()),
         });
         // a week-old undo, or one left half-made by a crash, is dropped
         let _ = undo_batch();
@@ -1189,6 +1192,47 @@ fn api(app: &Arc<App>, mut req: Request, path: &str, params: &HashMap<String, St
                 200,
                 json!({ "restored": restored, "failed": batch.photos.len(), "error": error, "bytes": bytes, "allPhotos": all_photos, "allBytes": all_bytes, "undo": undo_json(&undo_batch()) }),
             )
+        }
+        ("/api/hide", _, true, _) => {
+            // H: hidden in Photos at once, and out of the clusters at once
+            // (the library is read again in the background)
+            let body = read_json(&mut req);
+            let local: Vec<(String, String)> = {
+                let lib = app.lib.read().unwrap();
+                ids_of(&body["ids"]).into_iter().filter_map(|id| lib.by_id.get(&id).map(|&i| (id, lib.assets[i].local_id.clone()))).collect()
+            };
+            if local.is_empty() {
+                return err(req, 404, "not found");
+            }
+            let locals: Vec<String> = local.iter().map(|(_, l)| l.clone()).collect();
+            if let Err(e) = app.src.set_hidden(&locals, true) {
+                return err(req, 500, &e);
+            }
+            {
+                let mut lib = app.lib.write().unwrap();
+                for (id, _) in &local {
+                    if let Some(&i) = lib.by_id.get(id) {
+                        lib.assets[i].hidden = true;
+                    }
+                }
+            }
+            *app.hidden_last.lock().unwrap() = locals;
+            app.refresh();
+            let window = app.state.lock().unwrap().settings.window;
+            send_json(req, 200, json!({ "hidden": local.len(), "toDelete": app.delete_count(window) }))
+        }
+        ("/api/unhide", _, true, _) => {
+            // B after H: the photos just hidden, shown again
+            let locals = std::mem::take(&mut *app.hidden_last.lock().unwrap());
+            if locals.is_empty() {
+                return err(req, 404, "nothing hidden to show again");
+            }
+            if let Err(e) = app.src.set_hidden(&locals, false) {
+                *app.hidden_last.lock().unwrap() = locals;
+                return err(req, 500, &e);
+            }
+            app.refresh();
+            send_json(req, 200, json!({ "unhidden": locals.len(), "ids": locals.iter().map(|l| short_id(l)).collect::<Vec<_>>() }))
         }
         ("/api/favorite", _, true, _) => {
             // the heart in Photos: written to the library straight away

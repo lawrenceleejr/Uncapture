@@ -967,6 +967,62 @@ async function toggleFavorite() {
   updateDeleteCount();
   toast(on ? '♥ Favorite, in Photos too' : 'No longer a favorite');
 }
+/* H: hidden in Photos (its Hidden album) at once, and off the screen in the
+   key press: taken out of the cluster here, while the server tells Photos.
+   B (or ⌘Z) shows it again, if hiding was the last thing done. */
+const HIDE = { last: null };
+async function hidePhoto() {
+  const c = cur();
+  const id = focusedId();
+  const a = S.byId.get(id);
+  if (!a || !c) return;
+  const pos = c.indexOf(id);
+  const before = delOf(c).size;
+  c.splice(pos, 1);
+  if (c.length) {
+    S.focus = clamp(pos, 0, c.length - 1);
+    S.toDelete += delOf(c).size - before;
+  } else {
+    S.toDelete -= before;
+    S.clusters.splice(S.idx, 1);
+    S.idx = clamp(S.idx, 0, Math.max(0, S.clusters.length - 1));
+    S.focus = 0;
+  }
+  updateDeleteCount();
+  TL.version++;
+  if (S.solo) {
+    S.stageStale = true;
+    if (c.length) renderSolo();
+    else closeSolo();
+  } else scheduleRender();
+  const r = await api('POST', '/api/hide', { ids: [id] }).catch((e) => ({ error: e.message }));
+  if (r.error) {
+    toast(`Photos didn't hide it: ${r.error}`, { ms: 3500 });
+    return recluster(null, { id, t: a.t, ids: [id] });
+  }
+  S.toDelete = r.toDelete;
+  updateDeleteCount();
+  HIDE.last = { id, t: a.t };
+  UNDO.last = 'hide';
+  toast(`Hidden in Photos (the Hidden album) · B shows it again`);
+}
+
+async function unhidePhoto() {
+  const last = HIDE.last;
+  if (!last || UNDO.busy) return;
+  UNDO.busy = true;
+  const r = await api('POST', '/api/unhide').catch((e) => ({ error: e.message }));
+  UNDO.busy = false;
+  if (r.error) return toast(`Photos didn't show it again: ${r.error}`, { ms: 3500 });
+  HIDE.last = null;
+  UNDO.last = S.server.undo ? 'delete' : null;
+  // back where it was, on it
+  await waitForLibrary();
+  await loadAssets();
+  if (!$('#viewer').hidden && S.opened) await recluster(null, { id: last.id, t: last.t, ids: [last.id] });
+  toast('Shown again: no longer hidden in Photos');
+}
+
 function refreshCaptions() {
   updateDeleteCount();
   TL.version++;
@@ -2028,7 +2084,7 @@ function renderSoloCaption() {
   if (a.fav) cap.append(el('span', 'fav', '♥'));
   if (a.kind === 'video') cap.append(el('span', 'kind', `▶ ${fmtDur(a.dur)}`));
   const hint = el('span', 'hint');
-  hint.innerHTML = `${S.keep.has(id) ? 'kept' : d.has(id) ? 'to delete' : ''} &nbsp;<kbd>j</kbd><kbd>k</kbd> photos <kbd>↵</kbd> keep <kbd>D</kbd> delete <kbd>S</kbd> ♥ <kbd>E</kbd> share <kbd>Z</kbd> actual pixels <kbd>\`</kbd> loupe <kbd>Space</kbd> back`;
+  hint.innerHTML = `${S.keep.has(id) ? 'kept' : d.has(id) ? 'to delete' : ''} &nbsp;<kbd>j</kbd><kbd>k</kbd> photos <kbd>↵</kbd> keep <kbd>D</kbd> delete <kbd>S</kbd> ♥ <kbd>H</kbd> hide <kbd>E</kbd> share <kbd>Z</kbd> actual pixels <kbd>\`</kbd> loupe <kbd>Space</kbd> back`;
   cap.append(hint);
 }
 
@@ -2515,6 +2571,7 @@ async function doDelete() {
     await recluster(null, back.anchor);
     if (back.solo && back.anchor && focusedId() === back.anchor.id) openSolo();
   } else showStart();
+  if (r.deleted) UNDO.last = 'delete';
   showCleared(r);
 }
 
@@ -2546,7 +2603,8 @@ function showCleared(r) {
    server keeps its own copy of each photo (files, date, place, heart,
    albums); undo adds them back to Photos as new items. One batch, until the
    next delete, for up to a week. */
-const UNDO = { busy: false };
+// busy; and what B undoes: 'delete' (the last delete) or 'hide' (the last H)
+const UNDO = { busy: false, last: null };
 
 function undoLine(u) {
   const line = el('div', 'undo');
@@ -2562,6 +2620,7 @@ function undoLine(u) {
 }
 
 async function doUndo() {
+  if (UNDO.last === 'hide' && HIDE.last) return unhidePhoto();
   const u = S.server && S.server.undo;
   if (!u || UNDO.busy || RV.busy) return;
   UNDO.busy = true;
@@ -2586,6 +2645,8 @@ async function doUndo() {
     else if (!$('#start').hidden) showStart();
   }
   UNDO.busy = false;
+  // a hide before that delete is the next thing B undoes
+  UNDO.last = HIDE.last ? 'hide' : null;
   showUndone(r);
 }
 
@@ -2744,6 +2805,7 @@ const MENU = [
     { id: 'clear', label: "Clear the cluster's marks", key: '0', press: { key: '0', code: 'Digit0' }, when: inViewer },
     { id: 'mark', label: 'Mark photo for deletion', key: 'D  or X', press: { key: 'd' }, when: inViewer, on: () => S.del.has(focusedId()) },
     { id: 'favorite', label: 'Favorite in Photos (♥)', key: 'S', press: { key: 's' }, when: inViewer, on: () => !!S.byId.get(focusedId())?.fav },
+    { id: 'hide', label: 'Hide in Photos', key: 'H', press: { key: 'h' }, when: inViewer },
   ]],
   ['Look closely', [
     { id: 'large', label: 'Large view', key: 'Space', press: { key: ' ' }, when: inViewer, on: () => !!S.solo },
@@ -2764,7 +2826,7 @@ const MENU = [
   ['Review and delete', [
     { id: 'review', label: 'Review deletions', key: 'R', press: { key: 'r' }, when: () => authorized(), on: () => !$('#review').hidden },
     { id: 'delete', label: 'Delete from Photos…', key: '↵ in Review', press: { key: 'Enter' }, when: () => !$('#review').hidden && !!RV.data && reviewIds().length > 0 },
-    { id: 'undo', label: 'Undo the last delete', key: 'B  or ⌘Z', press: { key: 'b' }, when: () => authorized() && !!S.server.undo && !UNDO.busy && !RV.busy },
+    { id: 'undo', label: 'Undo the last delete or hide', key: 'B  or ⌘Z', press: { key: 'b' }, when: () => authorized() && (!!S.server.undo || !!HIDE.last) && !UNDO.busy && !RV.busy },
     { id: 'openphotos', label: 'Open Photos', key: '', press: { key: 'OpenPhotos' } },
   ]],
   ['Help', [
@@ -2844,7 +2906,7 @@ function onKey(e) {
   if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;
   // ⌘Z (Ctrl+Z off the Mac) undoes the last delete, as B does
   if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'z' || e.key === 'Z') && !(e.target && e.target.tagName === 'INPUT')) {
-    if (S.server && S.server.undo) {
+    if ((S.server && S.server.undo) || HIDE.last) {
       doUndo();
       return e.preventDefault();
     }
@@ -3012,6 +3074,9 @@ function onKey(e) {
       break;
     case 's':
       toggleFavorite();
+      break;
+    case 'h':
+      hidePhoto();
       break;
     case 'e':
       if (c) sharePhoto(focusedId());

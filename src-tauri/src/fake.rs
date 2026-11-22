@@ -414,6 +414,30 @@ impl PhotoSource for FakeSource {
         fs::write(self.dir.join("fake.json"), serde_json::to_vec_pretty(&m).unwrap()).map_err(|e| e.to_string())
     }
 
+    // hidden lives in fake.json too; the folder is read again
+    fn set_hidden(&self, local_ids: &[String], on: bool) -> Result<(), String> {
+        let mut m = self.manifest();
+        if !m.is_object() {
+            m = serde_json::json!({});
+        }
+        let files = m.as_object_mut().unwrap().entry("files").or_insert_with(|| serde_json::json!({}));
+        for rel in local_ids {
+            if !self.dir.join(rel).exists() {
+                return Err("not in the library".into());
+            }
+            let e = files.as_object_mut().ok_or("bad fake.json")?.entry(rel.clone()).or_insert_with(|| serde_json::json!({}));
+            match e.as_object_mut() {
+                Some(o) => {
+                    o.insert("hidden".into(), Value::Bool(on));
+                }
+                None => *e = serde_json::json!({ "hidden": on }),
+            }
+        }
+        fs::write(self.dir.join("fake.json"), serde_json::to_vec_pretty(&m).unwrap()).map_err(|e| e.to_string())?;
+        self.notify();
+        Ok(())
+    }
+
     // place names from fake.json: "places": { "35.96,-83.92": "Knoxville, Tennessee" }
     fn place(&self, lat: f64, lon: f64) -> Option<String> {
         let key = format!("{:.2},{:.2}", lat, lon);
